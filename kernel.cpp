@@ -1,3 +1,4 @@
+// test
 class VGAConsole
 {
 private:
