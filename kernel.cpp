@@ -37,6 +37,11 @@ static bool startsWith(const char *s, const char *prefix)
     return true;
 }
 
+#define CLR_RED 0x0C
+#define CLR_WHITE 0x0F
+#define CLR_POLE 0x08
+#define CH_BLOCK 0xDB
+
 class VGAConsole
 {
 private:
@@ -71,7 +76,7 @@ private:
     }
 
 public:
-    VGAConsole() {}
+    VGAConsole() : color(0x07) {}
     void setColor(u8 c) { color = c; }
 
     void clear()
@@ -100,6 +105,15 @@ public:
             vga()[offset + 1] = clr;
             offset += 2;
         }
+    }
+
+    void putCell(int r, int c, u8 ch, u8 clr)
+    {
+        if (r < 0 || r >= 25 || c < 0 || c >= 80)
+            return;
+        int offset = (r * 80 + c) * 2;
+        vga()[offset] = ch;
+        vga()[offset + 1] = clr;
     }
 
     void putChar(char ch)
@@ -230,17 +244,74 @@ static VGAConsole console;
 static Keyboard keyboard;
 
 static const char *PROMPT = "JACK_OS:> ";
+
+// Huruf blok 5x5: J A C K (spasi) O S
+static const char *const FONT[7][5] = {
+    {"#####", "   # ", "   # ", "#  # ", " ##  "},
+    {" ### ", "#   #", "#####", "#   #", "#   #"},
+    {" ####", "#    ", "#    ", "#    ", " ####"},
+    {"#   #", "#  # ", "###  ", "#  # ", "#   #"},
+    {"     ", "     ", "     ", "     ", "     "},
+    {" ### ", "#   #", "#   #", "#   #", " ### "},
+    {" ####", "#    ", " ### ", "    #", "#### "}};
+
+static void drawFlag(int top, int left)
+{
+    static const int wave[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+
+    for (int x = 0; x < 20; x++)
+    {
+        for (int b = 0; b < 8; b++)
+        {
+            u8 clr = (b < 4) ? CLR_RED : CLR_WHITE;
+            console.putCell(top + b + wave[x % 8], left + x, CH_BLOCK, clr);
+        }
+    }
+    for (int r = top - 1; r < top + 10; r++)
+        console.putCell(r, left - 1, CH_BLOCK, CLR_POLE);
+}
+
+constexpr int GLYPH_COUNT = 7;
+constexpr int FONT_WIDTH = 5;
+constexpr int FONT_HEIGHT = 5;
+constexpr int GLYPH_SPACING = FONT_WIDTH + 1;
+constexpr int RED_ROWS = 2;
+
+static u8 colorForTitleRow(int row)
+{
+    return row < RED_ROWS ? CLR_RED : CLR_WHITE;
+}
+
+static void drawGlyph(int glyph, int top, int left)
+{
+    for (int row = 0; row < FONT_HEIGHT; row++)
+    {
+        u8 color = colorForTitleRow(row);
+
+        for (int col = 0; col < FONT_WIDTH; col++)
+        {
+            if (FONT[glyph][row][col] != '#')
+                continue;
+
+            console.putCell(top + row, left + col, CH_BLOCK, color);
+        }
+    }
+}
+
+static void drawTitle(int top, int left)
+{
+    for (int glyph = 0; glyph < GLYPH_COUNT; glyph++)
+        drawGlyph(glyph, top, left + glyph * GLYPH_SPACING);
+}
+
 static void showBanner()
 {
     console.clear();
-    console.writeAt(1, 17, "     _     _      ____  _  __     ___    ____  ", 0x0A);
-    console.writeAt(2, 17, "    | |   / \\    / ___|| |/ /    / _ \\ / ___| ", 0x0A);
-    console.writeAt(3, 17, " _  | |  / _ \\  | |    | ' /    | | | |\\___ \\ ", 0x0A);
-    console.writeAt(4, 17, "| |_| | / ___ \\ | |___ | . \\    | |_| | ___) |", 0x0A);
-    console.writeAt(5, 17, " \\___/ /_/   \\_\\ \\____||_|\\_\\    \\___/ |____/ ", 0x0A);
-    console.writeAt(7, 25, "=== JACK_OS C++ KERNEL v1.1 ===", 0x0E);
-    console.setCursor(9, 0);
-    console.print("Ketik 'get start' untuk melihat daftar perintah.\n\n", 0x0B);
+    drawFlag(3, 6);
+    drawTitle(5, 31);
+    console.writeAt(13, 24, "=== JACK_OS C++ KERNEL v1.1 ===", CLR_RED);
+    console.setCursor(15, 0);
+    console.print("Ketik 'mulai' untuk melihat daftar perintah.\n\n", CLR_WHITE);
 }
 
 static void runCommand(const char *cmd)
@@ -248,9 +319,9 @@ static void runCommand(const char *cmd)
     if (cmd[0] == '\0')
         return;
 
-    if (strEqual(cmd, "help") || strEqual(cmd, "get start"))
+    if (strEqual(cmd, "help") || strEqual(cmd, "mulai"))
     {
-        console.print("Perintah yang tersedia:\n", 0x0E);
+        console.print("Perintah yang tersedia:\n", CLR_RED);
         console.print("  help         - tampilkan bantuan ini\n");
         console.print("  clear        - bersihkan layar\n");
         console.print("  info         - informasi JACK_OS\n");
@@ -263,7 +334,7 @@ static void runCommand(const char *cmd)
     }
     else if (strEqual(cmd, "info"))
     {
-        console.print("JACK_OS v1.1\n", 0x0A);
+        console.print("JACK_OS v1.1\n", CLR_RED);
         console.print("  Arsitektur : x86 32-bit (i686)\n");
         console.print("  Bahasa     : C++ freestanding + Assembly\n");
         console.print("  Layar      : VGA text mode 80x25\n");
@@ -280,13 +351,13 @@ static void runCommand(const char *cmd)
     }
     else if (strEqual(cmd, "reboot"))
     {
-        console.print("Restarting...\n", 0x0C);
+        console.print("Restarting...\n", CLR_RED);
         outb(0x64, 0xFE);
     }
     else
     {
-        console.print("Perintah tidak dikenal: ", 0x0C);
-        console.print(cmd, 0x0C);
+        console.print("Perintah tidak dikenal: ", CLR_RED);
+        console.print(cmd, CLR_RED);
         console.print("\n");
     }
 }
@@ -294,13 +365,14 @@ static void runCommand(const char *cmd)
 extern "C" void kmain(void)
 {
     showBanner();
+    console.setColor(CLR_WHITE);
 
     char buffer[128];
     int len = 0;
 
     while (true)
     {
-        console.print(PROMPT, 0x0A);
+        console.print(PROMPT, CLR_RED);
         len = 0;
 
         while (true)
@@ -324,7 +396,7 @@ extern "C" void kmain(void)
             else if (ch >= 32 && ch < 127 && len < 127)
             {
                 buffer[len++] = ch;
-                console.setColor(0x0F);
+                console.setColor(CLR_WHITE);
                 console.putChar(ch);
             }
         }
