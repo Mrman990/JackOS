@@ -1,0 +1,20 @@
+cd "$(dirname "$0")"
+
+if [ "$1" = "JACK_OS" ]; then
+    echo "[1/4] Mengompilasi kernel.cpp..."
+    clang++ --target=i686-elf -ffreestanding -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -c kernel.cpp -o kernel.o
+    if [ $? -ne 0 ]; then echo "Error: Kompilasi kernel gagal!"; exit 1; fi
+
+    echo "[2/4] Mengompilasi loader.s..."
+    clang --target=i686-elf -c loader.s -o loader.o
+    if [ $? -ne 0 ]; then echo "Error: Assembly loader gagal!"; exit 1; fi
+
+    echo "[3/4] Melakukan linking ke kernel.bin..."
+    ld.lld -m elf_i386 -T linker.ld -o kernel.bin loader.o kernel.o
+    if [ $? -ne 0 ]; then echo "Error: Linking gagal!"; exit 1; fi
+
+    echo "[4/4] Menjalankan QEMU..."
+    qemu-system-i386 -kernel kernel.bin
+
+else
+    echo "Perintah tidak dikenali."; fi
