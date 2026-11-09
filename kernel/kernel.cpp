@@ -1,3 +1,4 @@
+#include <stdint.h>
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -13,6 +14,7 @@ static inline void outb(u16 port, u8 val)
 {
     __asm__ __volatile__("outb %0, %1" : : "a"(val), "Nd"(port));
 }
+
 static bool strEqual(const char *a, const char *b)
 {
     while (*a && *b)
@@ -243,9 +245,116 @@ public:
 static VGAConsole console;
 static Keyboard keyboard;
 
+
+enum ThreadState
+{
+    THREAD_NEW,
+    THREAD_READY,
+    THREAD_RUNNING,
+    THREAD_WAITING,
+    THREAD_TERMINATED
+};
+
+struct CPUContext
+{
+    uint32_t esp;
+    uint32_t ebx;
+    uint32_t esi;
+    uint32_t edi;
+    uint32_t ebp;
+    uint32_t eip;
+};
+
+#define MAX_THREADS 10
+
+class Thread
+{
+public:
+    int tid;
+    ThreadState state;
+    uint8_t stack[1024];
+    CPUContext context;
+    Thread *next;
+    void (*entry_point)();
+
+    Thread() : tid(0), state(THREAD_NEW), next(nullptr), entry_point(nullptr) {}
+
+    void init(int id, void (*func)())
+    {
+        tid = id;
+        state = THREAD_READY;
+        entry_point = func;
+        next = nullptr;
+
+        uint32_t *stack_top = (uint32_t *)(stack + sizeof(stack));
+        *(--stack_top) = (uint32_t)func;
+        context.esp = (uint32_t)stack_top;
+        context.eip = (uint32_t)func;
+    }
+};
+
+class KernelScheduler
+{
+private:
+    Thread thread_pool[MAX_THREADS];
+    int pool_idx;
+    Thread *head;
+    Thread *current;
+    int next_id;
+
+public:
+    KernelScheduler() : pool_idx(0), head(nullptr), current(nullptr), next_id(1) {}
+
+    Thread *createThread(void (*func)())
+    {
+        if (pool_idx >= MAX_THREADS)
+            return nullptr;
+
+        Thread *t = &thread_pool[pool_idx++];
+        t->init(next_id++, func);
+
+        if (!head)
+        {
+            head = t;
+        }
+        else
+        {
+            Thread *temp = head;
+            while (temp->next)
+                temp = temp->next;
+            temp->next = t;
+        }
+        return t;
+    }
+
+    void yield()
+    {
+        if (!head)
+            return;
+        if (!current)
+        {
+            current = head;
+        }
+        else
+        {
+            current = current->next ? current->next : head;
+        }
+        if (current && current->entry_point)
+        {
+            current->entry_point();
+        }
+    }
+};
+
+static KernelScheduler scheduler;
+
+void inventoryTask()
+{
+    console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
+}
+
 static const char *PROMPT = "JACK_OS:> ";
 
-// Huruf blok 5x5: J A C K (spasi) O S
 static const char *const FONT[7][5] = {
     {"#####", "   # ", "   # ", "#  # ", " ##  "},
     {" ### ", "#   #", "#####", "#   #", "#   #"},
@@ -287,12 +396,10 @@ static void drawGlyph(int glyph, int top, int left)
     for (int row = 0; row < FONT_HEIGHT; row++)
     {
         u8 color = colorForTitleRow(row);
-
         for (int col = 0; col < FONT_WIDTH; col++)
         {
             if (FONT[glyph][row][col] != '#')
                 continue;
-
             console.putCell(top + row, left + col, CH_BLOCK, color);
         }
     }
@@ -309,7 +416,7 @@ static void showBanner()
     console.clear();
     drawFlag(3, 6);
     drawTitle(5, 31);
-    console.writeAt(13, 24, "=== JACK_OS C++ KERNEL v1.1 ===", CLR_RED);
+    console.writeAt(13, 24, "=== JACK_OS C++ KERNEL v1.2 ===", CLR_RED);
     console.setCursor(15, 0);
     console.print("Ketik 'mulai' untuk melihat daftar perintah.\n\n", CLR_WHITE);
 }
@@ -322,11 +429,18 @@ static void runCommand(const char *cmd)
     if (strEqual(cmd, "help") || strEqual(cmd, "mulai"))
     {
         console.print("Perintah yang tersedia:\n", CLR_RED);
-        console.print("  help         - tampilkan bantuan ini\n");
-        console.print("  clear        - bersihkan layar\n");
-        console.print("  info         - informasi JACK_OS\n");
-        console.print("  echo <teks>  - cetak teks\n");
-        console.print("  reboot       - restart sistem\n");
+        console.print("  help          - tampilkan bantuan ini\n");
+        console.print("  clear         - bersihkan layar\n");
+        console.print("  info          - informasi JACK_OS\n");
+        console.print("  inventory     - jalankan thread inventory management\n");
+        console.print("  echo <teks>   - cetak teks\n");
+        console.print("  reboot        - restart sistem\n");
+    }
+    else if (strEqual(cmd, "inventory"))
+    {
+        console.print("Membuat & menjadwalkan Thread Inventory...\n", CLR_WHITE);
+        scheduler.createThread(inventoryTask);
+        scheduler.yield();
     }
     else if (strEqual(cmd, "clear"))
     {
@@ -334,19 +448,14 @@ static void runCommand(const char *cmd)
     }
     else if (strEqual(cmd, "info"))
     {
-        console.print("JACK_OS v1.1\n", CLR_RED);
+        console.print("JACK_OS v1.2 (Multithreaded)\n", CLR_RED);
         console.print("  Arsitektur : x86 32-bit (i686)\n");
         console.print("  Bahasa     : C++ freestanding + Assembly\n");
-        console.print("  Layar      : VGA text mode 80x25\n");
-        console.print("  Input      : keyboard PS/2 (polling)\n");
+        console.print("  Fitur      : VGA, Keyboard, Thread & Scheduler\n");
     }
     else if (startsWith(cmd, "echo "))
     {
         console.print(cmd + 5);
-        console.print("\n");
-    }
-    else if (strEqual(cmd, "echo"))
-    {
         console.print("\n");
     }
     else if (strEqual(cmd, "reboot"))
@@ -366,6 +475,8 @@ extern "C" void kmain(void)
 {
     showBanner();
     console.setColor(CLR_WHITE);
+
+    scheduler.createThread(inventoryTask);
 
     char buffer[128];
     int len = 0;
@@ -402,5 +513,6 @@ extern "C" void kmain(void)
         }
 
         runCommand(buffer);
+        scheduler.yield();
     }
 }
