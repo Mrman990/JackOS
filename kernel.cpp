@@ -238,10 +238,46 @@ public:
                 return ch;
         }
     }
+
+    char tryGetChar()
+    {
+        if (!(inb(0x64) & 1))
+            return 0;
+
+        u8 sc = inb(0x60);
+
+        if (sc == 0xE0)
+        {
+            extended = true;
+            return 0;
+        }
+        if (extended)
+        {
+            extended = false;
+            if (sc & 0x80)
+                return 0;
+            if (sc == 0x48)
+                return 'w';
+            if (sc == 0x50)
+                return 's';
+            if (sc == 0x4B)
+                return 'a';
+            if (sc == 0x4D)
+                return 'd';
+            return 0;
+        }
+
+        if (sc & 0x80)
+            return 0;
+        if (sc >= 58)
+            return 0;
+        return scanNormal[sc];
+    }
 };
 
 static VGAConsole console;
 static Keyboard keyboard;
+#include "tetris.h"
 
 static const char *PROMPT = "JACK_OS:> ";
 
@@ -325,8 +361,14 @@ static void runCommand(const char *cmd)
         console.print("  help         - tampilkan bantuan ini\n");
         console.print("  clear        - bersihkan layar\n");
         console.print("  info         - informasi JACK_OS\n");
+        console.print("  tetris       - main game Tetris\n");
         console.print("  echo <teks>  - cetak teks\n");
         console.print("  reboot       - restart sistem\n");
+    }
+    else if (strEqual(cmd, "tetris"))
+    {
+        runTetris();
+        showBanner();
     }
     else if (strEqual(cmd, "clear"))
     {
