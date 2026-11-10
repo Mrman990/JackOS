@@ -245,112 +245,67 @@ public:
 static VGAConsole console;
 static Keyboard keyboard;
 
-
-enum ThreadState
-{
-    THREAD_NEW,
-    THREAD_READY,
-    THREAD_RUNNING,
-    THREAD_WAITING,
-    THREAD_TERMINATED
-};
-
-struct CPUContext
-{
-    uint32_t esp;
-    uint32_t ebx;
-    uint32_t esi;
-    uint32_t edi;
-    uint32_t ebp;
-    uint32_t eip;
-};
-
-#define MAX_THREADS 10
-
-class Thread
-{
-public:
-    int tid;
-    ThreadState state;
-    uint8_t stack[1024];
-    CPUContext context;
-    Thread *next;
-    void (*entry_point)();
-
-    Thread() : tid(0), state(THREAD_NEW), next(nullptr), entry_point(nullptr) {}
-
-    void init(int id, void (*func)())
-    {
-        tid = id;
-        state = THREAD_READY;
-        entry_point = func;
-        next = nullptr;
-
-        uint32_t *stack_top = (uint32_t *)(stack + sizeof(stack));
-        *(--stack_top) = (uint32_t)func;
-        context.esp = (uint32_t)stack_top;
-        context.eip = (uint32_t)func;
-    }
-};
-
-class KernelScheduler
-{
-private:
-    Thread thread_pool[MAX_THREADS];
-    int pool_idx;
-    Thread *head;
-    Thread *current;
-    int next_id;
-
-public:
-    KernelScheduler() : pool_idx(0), head(nullptr), current(nullptr), next_id(1) {}
-
-    Thread *createThread(void (*func)())
-    {
-        if (pool_idx >= MAX_THREADS)
-            return nullptr;
-
-        Thread *t = &thread_pool[pool_idx++];
-        t->init(next_id++, func);
-
-        if (!head)
-        {
-            head = t;
-        }
-        else
-        {
-            Thread *temp = head;
-            while (temp->next)
-                temp = temp->next;
-            temp->next = t;
-        }
-        return t;
-    }
-
-    void yield()
-    {
-        if (!head)
-            return;
-        if (!current)
-        {
-            current = head;
-        }
-        else
-        {
-            current = current->next ? current->next : head;
-        }
-        if (current && current->entry_point)
-        {
-            current->entry_point();
-        }
-    }
-};
-
-static KernelScheduler scheduler;
+#include "process/process.h"
 
 void inventoryTask()
 {
     console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
+}
+
+static void printNum(u32 v, u8 clr)
+{
+    char buf[12];
+    int i = 11;
+    buf[i] = '\0';
+    if (v == 0)
+        buf[--i] = '0';
+    while (v > 0)
+    {
+        buf[--i] = (char)('0' + v % 10);
+        v /= 10;
+    }
+    console.print(&buf[i], clr);
+}
+
+// Dipanggil scheduler setiap status thread berubah.
+static void logThreadState(const thread_t *t, thread_state_t from, thread_state_t to)
+{
+    console.print("[T", CLR_RED);
+    printNum(t->tid, CLR_RED);
+    console.print(" ", CLR_RED);
+    console.print(t->name, CLR_RED);
+    console.print("] ", CLR_RED);
+    if (from == to)
+    {
+        console.print(thread_state_name(to), CLR_WHITE);
+    }
+    else
+    {
+        console.print(thread_state_name(from), CLR_WHITE);
+        console.print(" -> ", CLR_WHITE);
+        console.print(thread_state_name(to), CLR_WHITE);
+    }
+    console.print("\n", CLR_WHITE);
+}
+
+// Tugas 1: menghitung stok, lalu menunggu (WAITING) sebelum selesai.
+static void taskData()
+{
+    console.print("  [Data] menghitung stok barang...\n", CLR_WHITE);
+    thread_sleep(2);
+    console.print("  [Data] stok selesai dihitung.\n", CLR_WHITE);
+}
+
+// Tugas 2: memeriksa sistem, melepas giliran (READY) di tiap pemeriksaan.
+static void taskMonitor()
+{
+    for (int i = 1; i <= 2; i++)
+    {
+        console.print("  [Monitor] cek sistem ke-", CLR_WHITE);
+        printNum((u32)i, CLR_WHITE);
+        console.print("\n", CLR_WHITE);
+        yield();
+    }
 }
 
 static const char *PROMPT = "JACK_OS:> ";
@@ -421,6 +376,42 @@ static void showBanner()
     console.print("Ketik 'mulai' untuk melihat daftar perintah.\n\n", CLR_WHITE);
 }
 
+// Demo 2 kernel thread dengan tugas berbeda + perubahan statusnya.
+static void runDemo()
+{
+    console.print("=== DEMO KERNEL THREAD ===\n", CLR_RED);
+    if (!create_thread("Data", taskData) || !create_thread("Monitor", taskMonitor))
+    {
+        console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
+        return;
+    }
+    scheduler_run();
+    console.print("=== DEMO SELESAI ===\n", CLR_RED);
+}
+
+// Tabel semua thread beserta statusnya.
+static void showThreads()
+{
+    console.print("ID   NAMA       STATUS\n", CLR_RED);
+    int n = 0;
+    for (int i = 0; i < thread_count(); i++)
+    {
+        thread_t *t = thread_at(i);
+        if (!t->in_use)
+            continue;
+        n++;
+        console.print("T", CLR_WHITE);
+        printNum(t->tid, CLR_WHITE);
+        console.print("   ", CLR_WHITE);
+        console.print(t->name, CLR_WHITE);
+        console.print("   ", CLR_WHITE);
+        console.print(thread_state_name(t->state), CLR_WHITE);
+        console.print("\n", CLR_WHITE);
+    }
+    if (n == 0)
+        console.print("(belum ada thread)\n", CLR_WHITE);
+}
+
 static void runCommand(const char *cmd)
 {
     if (cmd[0] == '\0')
@@ -433,14 +424,28 @@ static void runCommand(const char *cmd)
         console.print("  clear         - bersihkan layar\n");
         console.print("  info          - informasi JACK_OS\n");
         console.print("  inventory     - jalankan thread inventory management\n");
+        console.print("  demo          - demo 2 thread + perubahan status\n");
+        console.print("  threads       - tampilkan daftar thread & status\n");
         console.print("  echo <teks>   - cetak teks\n");
         console.print("  reboot        - restart sistem\n");
     }
     else if (strEqual(cmd, "inventory"))
     {
         console.print("Membuat & menjadwalkan Thread Inventory...\n", CLR_WHITE);
-        scheduler.createThread(inventoryTask);
-        scheduler.yield();
+        if (!create_thread("Inventory", inventoryTask))
+        {
+            console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
+            return;
+        }
+        scheduler_run();
+    }
+    else if (strEqual(cmd, "demo"))
+    {
+        runDemo();
+    }
+    else if (strEqual(cmd, "threads"))
+    {
+        showThreads();
     }
     else if (strEqual(cmd, "clear"))
     {
@@ -476,7 +481,8 @@ extern "C" void kmain(void)
     showBanner();
     console.setColor(CLR_WHITE);
 
-    scheduler.createThread(inventoryTask);
+    scheduler_init();
+    scheduler_set_logger(logThreadState);
 
     char buffer[128];
     int len = 0;
@@ -513,6 +519,5 @@ extern "C" void kmain(void)
         }
 
         runCommand(buffer);
-        scheduler.yield();
     }
 }
