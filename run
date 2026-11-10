@@ -1,19 +1,27 @@
 cd "$(dirname "$0")"
 
 if [ "$1" = "JACK_OS" ]; then
-    echo "[1/4] Mengompilasi kernel.cpp..."
+    echo "[1/6] Mengompilasi kernel.cpp..."
     clang++ --target=i686-elf -ffreestanding -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -c kernel/kernel.cpp -o kernel.o
     if [ $? -ne 0 ]; then echo "Error: Kompilasi kernel gagal!"; exit 1; fi
 
-    echo "[2/4] Mengompilasi loader.s..."
+    echo "[2/6] Mengompilasi thread.c..."
+    clang --target=i686-elf -ffreestanding -fno-asynchronous-unwind-tables -fno-stack-protector -c kernel/process/thread.c -o thread.o
+    if [ $? -ne 0 ]; then echo "Error: Kompilasi thread.c gagal!"; exit 1; fi
+
+    echo "[3/6] Mengompilasi scheduler.c..."
+    clang --target=i686-elf -ffreestanding -fno-asynchronous-unwind-tables -fno-stack-protector -c kernel/process/scheduler.c -o scheduler.o
+    if [ $? -ne 0 ]; then echo "Error: Kompilasi scheduler.c gagal!"; exit 1; fi
+
+    echo "[4/6] Mengompilasi loader.s..."
     clang --target=i686-elf -c loader/loader.s -o loader.o
     if [ $? -ne 0 ]; then echo "Error: Assembly loader gagal!"; exit 1; fi
 
-    echo "[3/4] Melakukan linking ke kernel.bin..."
-    ld.lld -m elf_i386 -T linker/linker.ld -o kernel.bin loader.o kernel.o
+    echo "[5/6] Melakukan linking ke kernel.bin..."
+    ld.lld -m elf_i386 -T linker/linker.ld -o kernel.bin loader.o kernel.o thread.o scheduler.o
     if [ $? -ne 0 ]; then echo "Error: Linking gagal!"; exit 1; fi
 
-    echo "[4/4] Menjalankan QEMU..."
+    echo "[6/6] Menjalankan QEMU..."
     qemu-system-i386 -kernel kernel.bin
 
 else
