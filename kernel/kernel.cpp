@@ -1,4 +1,7 @@
 #include <stdint.h>
+#include "memori_menejeman/kmalloc.hpp" // <-- Paling atas
+#include "process/process.h"            // <-- Di bawahnya
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -245,8 +248,6 @@ public:
 static VGAConsole console;
 static Keyboard keyboard;
 
-#include "process/process.h"
-
 void inventoryTask()
 {
     console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
@@ -389,6 +390,91 @@ static void runDemo()
     console.print("=== DEMO SELESAI ===\n", CLR_RED);
 }
 
+static void printHex(u32 v, u8 clr)
+{
+    const char *digits = "0123456789ABCDEF";
+    char buf[11];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 8; i++)
+        buf[2 + i] = digits[(v >> (28 - i * 4)) & 0xF];
+    buf[10] = '\0';
+    console.print(buf, clr);
+}
+
+// Ringkasan pemakaian heap.
+static void showMem()
+{
+    console.print("Heap: total ", CLR_WHITE);
+    printNum((u32)mem::total(), CLR_WHITE);
+    console.print(" B, terpakai ", CLR_WHITE);
+    printNum((u32)mem::used(), CLR_WHITE);
+    console.print(" B, bebas ", CLR_WHITE);
+    printNum((u32)(mem::total() - mem::used()), CLR_WHITE);
+    console.print(" B\n", CLR_WHITE);
+}
+
+static void printResult(const char *label, bool ok)
+{
+    console.print("  ", CLR_WHITE);
+    console.print(label, CLR_WHITE);
+    console.print(ok ? ": OK\n" : ": GAGAL\n", ok ? CLR_WHITE : CLR_RED);
+}
+
+// Tes kmalloc/kfree: alokasi, isi data, lubang bekas free, dan penggabungan blok.
+static void runMemTest()
+{
+    console.print("=== TES MEMORI ===\n", CLR_RED);
+    u32 awal = (u32)mem::used();
+    showMem();
+
+    char *a = (char *)kmalloc(100);
+    char *b = (char *)kmalloc(200);
+    char *c = (char *)kmalloc(50);
+    console.print("kmalloc a(100) = ", CLR_WHITE);
+    printHex((u32)(uintptr_t)a, CLR_WHITE);
+    console.print("\nkmalloc b(200) = ", CLR_WHITE);
+    printHex((u32)(uintptr_t)b, CLR_WHITE);
+    console.print("\nkmalloc c(50)  = ", CLR_WHITE);
+    printHex((u32)(uintptr_t)c, CLR_WHITE);
+    console.print("\n", CLR_WHITE);
+    showMem();
+    printResult("3 blok berhasil dialokasi", a && b && c && a != b && b != c);
+
+    // Data yang ditulis harus terbaca kembali utuh.
+    bool dataOk = a && c;
+    if (dataOk)
+    {
+        for (int i = 0; i < 100; i++)
+            a[i] = (char)(i + 1);
+        for (int i = 0; i < 50; i++)
+            c[i] = (char)(200 - i);
+        for (int i = 0; i < 100; i++)
+            if (a[i] != (char)(i + 1))
+                dataOk = false;
+        for (int i = 0; i < 50; i++)
+            if (c[i] != (char)(200 - i))
+                dataOk = false;
+    }
+    printResult("isi data a dan c utuh", dataOk);
+
+    // Bebaskan b, alokasi baru yang muat harus mengisi lubang bekas b.
+    kfree(b);
+    char *d = (char *)kmalloc(150);
+    printResult("d menempati lubang bekas b", d == b);
+
+    // Bebaskan semua: blok digabung, pemakaian kembali seperti awal.
+    kfree(a);
+    kfree(c);
+    kfree(d);
+    printResult("semua dibebaskan, heap kembali utuh", (u32)mem::used() == awal);
+
+    // Permintaan di luar kapasitas harus ditolak.
+    void *besar = kmalloc((size_t)mem::total() * 2);
+    printResult("alokasi terlalu besar ditolak", besar == nullptr);
+    showMem();
+}
+
 // Tabel semua thread beserta statusnya.
 static void showThreads()
 {
@@ -426,6 +512,8 @@ static void runCommand(const char *cmd)
         console.print("  inventory     - jalankan thread inventory management\n");
         console.print("  demo          - demo 2 thread + perubahan status\n");
         console.print("  threads       - tampilkan daftar thread & status\n");
+        console.print("  mem           - tampilkan pemakaian memori heap\n");
+        console.print("  memtest       - tes kmalloc dan kfree\n");
         console.print("  echo <teks>   - cetak teks\n");
         console.print("  reboot        - restart sistem\n");
     }
@@ -446,6 +534,14 @@ static void runCommand(const char *cmd)
     else if (strEqual(cmd, "threads"))
     {
         showThreads();
+    }
+    else if (strEqual(cmd, "mem"))
+    {
+        showMem();
+    }
+    else if (strEqual(cmd, "memtest"))
+    {
+        runMemTest();
     }
     else if (strEqual(cmd, "clear"))
     {
@@ -480,6 +576,8 @@ extern "C" void kmain(void)
 {
     showBanner();
     console.setColor(CLR_WHITE);
+
+    mem::init(); // Inisialisasi Heap Memori
 
     scheduler_init();
     scheduler_set_logger(logThreadState);
