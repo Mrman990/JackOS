@@ -246,11 +246,8 @@ static VGAConsole console;
 static Keyboard keyboard;
 
 #include "process/process.h"
+#include "process/mutex.h"
 
-void inventoryTask()
-{
-    console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
-}
 
 static void printNum(u32 v, u8 clr)
 {
@@ -411,6 +408,38 @@ static void showThreads()
     if (n == 0)
         console.print("(belum ada thread)\n", CLR_WHITE);
 }
+static int stokBarang = 10;
+static mutex_t stockMutex;
+
+static void taskPenjualan()
+{
+    mutex_lock(&stockMutex);
+
+    console.print("[Penjualan] Mengakses data stok...\n", CLR_WHITE);
+
+    int stokSementara = stokBarang;
+    yield();
+
+    stokBarang = stokSementara - 2;
+
+    console.print("[Penjualan] Berhasil mengurangi stok.\n", CLR_WHITE);
+    mutex_unlock(&stockMutex);
+}
+
+static void taskRestock()
+{
+    mutex_lock(&stockMutex);
+
+    console.print("[Restock] Mengakses data stok...\n", CLR_WHITE);
+
+    int stokSementara = stokBarang;
+    yield();
+
+    stokBarang = stokSementara + 5;
+
+    console.print("[Restock] Berhasil menambah stok.\n", CLR_WHITE);
+    mutex_unlock(&stockMutex);
+}
 
 static void runCommand(const char *cmd)
 {
@@ -430,15 +459,25 @@ static void runCommand(const char *cmd)
         console.print("  reboot        - restart sistem\n");
     }
     else if (strEqual(cmd, "inventory"))
+{
+    console.print("=== SIMULASI INVENTORY MANAGEMENT ===\n", CLR_RED);
+
+    stokBarang = 10;
+    mutex_init(&stockMutex);
+
+    if (!create_thread("Penjualan", taskPenjualan) ||
+        !create_thread("Restock", taskRestock))
     {
-        console.print("Membuat & menjadwalkan Thread Inventory...\n", CLR_WHITE);
-        if (!create_thread("Inventory", inventoryTask))
-        {
-            console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
-            return;
-        }
-        scheduler_run();
+        console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
+        return;
     }
+
+    scheduler_run();
+
+    console.print("Stok akhir: ", CLR_WHITE);
+    printNum((u32)stokBarang, CLR_WHITE);
+    console.print("\n=== SIMULASI SELESAI ===\n", CLR_RED);
+}
     else if (strEqual(cmd, "demo"))
     {
         runDemo();
