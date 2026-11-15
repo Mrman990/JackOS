@@ -1,6 +1,6 @@
 #include <stdint.h>
-#include "memori_menejeman/kmalloc.hpp" // <-- Paling atas
-#include "process/process.h"            // <-- Di bawahnya
+#include "memori_menejeman/kmalloc.hpp"
+#include "process/process.h"
 
 typedef unsigned char u8;
 typedef unsigned short u16;
@@ -248,6 +248,12 @@ public:
 static VGAConsole console;
 static Keyboard keyboard;
 
+#include "Protection/protection.h"
+#include "ramdisk/ramdisk.h"
+#include "Protection/syscall.h"
+#include "ramdisk/ramdisk_cmd.h"
+#include "aplikasi/stok_app.h"
+
 void inventoryTask()
 {
     console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
@@ -421,6 +427,8 @@ static void printResult(const char *label, bool ok)
     console.print(ok ? ": OK\n" : ": GAGAL\n", ok ? CLR_WHITE : CLR_RED);
 }
 
+#include "Protection/protection_cmd.h"
+
 // Tes kmalloc/kfree: alokasi, isi data, lubang bekas free, dan penggabungan blok.
 static void runMemTest()
 {
@@ -512,9 +520,15 @@ static void runCommand(const char *cmd)
         console.print("  inventory     - jalankan thread inventory management\n");
         console.print("  demo          - demo 2 thread + perubahan status\n");
         console.print("  threads       - tampilkan daftar thread & status\n");
-        console.print("  mem           - tampilkan pemakaian memori heap\n");
-        console.print("  memtest       - tes kmalloc dan kfree\n");
+        console.print("  memori        - tampilkan pemakaian heap\n");
+        console.print("  tsmemori      - tes alokasi memori (kmalloc/kfree)\n");
+        console.print("  barang        - daftar barang (RAMDisk)\n");
+        console.print("  tambah <nama> <stok> | ubah <id> <stok> | hapus <id>\n");
+        console.print("  mode          - tampilkan mode (USER/KERNEL) & izin\n");
+        console.print("  proteksi      - demo akses ditolak vs lewat syscall\n");
+        console.print("  izin <op> <on|off> - atur izin mode USER\n");
         console.print("  echo <teks>   - cetak teks\n");
+        console.print("  stok          - aplikasi stok barang (menu)\n");
         console.print("  reboot        - restart sistem\n");
     }
     else if (strEqual(cmd, "inventory"))
@@ -535,13 +549,19 @@ static void runCommand(const char *cmd)
     {
         showThreads();
     }
-    else if (strEqual(cmd, "mem"))
+    else if (strEqual(cmd, "memori"))
     {
         showMem();
     }
-    else if (strEqual(cmd, "memtest"))
+    else if (strEqual(cmd, "tsmemori"))
     {
         runMemTest();
+    }
+    else if (ramdiskCommand(cmd))
+    {
+    }
+    else if (protectionCommand(cmd))
+    {
     }
     else if (strEqual(cmd, "clear"))
     {
@@ -564,6 +584,10 @@ static void runCommand(const char *cmd)
         console.print("Restarting...\n", CLR_RED);
         outb(0x64, 0xFE);
     }
+    else if (strEqual(cmd, "stok"))
+    {
+        runStokApp();
+    }
     else
     {
         console.print("Perintah tidak dikenal: ", CLR_RED);
@@ -578,6 +602,7 @@ extern "C" void kmain(void)
     console.setColor(CLR_WHITE);
 
     mem::init(); // Inisialisasi Heap Memori
+    ramdisk.init();
 
     scheduler_init();
     scheduler_set_logger(logThreadState);
