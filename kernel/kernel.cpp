@@ -247,8 +247,9 @@ public:
 
 static VGAConsole console;
 static Keyboard keyboard;
-
 #include "Protection/protection.h"
+#include "driver/driver.h"
+#include "driver/sys_io.h"
 #include "ramdisk/ramdisk.h"
 #include "Protection/syscall.h"
 #include "ramdisk/ramdisk_cmd.h"
@@ -528,6 +529,7 @@ static void runCommand(const char *cmd)
         console.print("  proteksi      - demo akses ditolak vs lewat syscall\n");
         console.print("  izin <op> <on|off> - atur izin mode USER\n");
         console.print("  echo <teks>   - cetak teks\n");
+        console.print("  io            - demo driver layar & keyboard lewat syscall\n");
         console.print("  stok          - aplikasi stok barang (menu)\n");
         console.print("  reboot        - restart sistem\n");
     }
@@ -566,6 +568,10 @@ static void runCommand(const char *cmd)
     else if (strEqual(cmd, "clear"))
     {
         showBanner();
+    }
+    else if (strEqual(cmd, "io"))
+    {
+        ioDemo();
     }
     else if (strEqual(cmd, "info"))
     {

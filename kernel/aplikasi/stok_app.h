@@ -1,45 +1,25 @@
 #pragma once
 // Aplikasi Stok Barang (berjalan di mode USER).
-// Include SETELAH ramdisk_cmd.h (memakai rdParseLong, rdShowError, rdEq).
+// Include SETELAH ramdisk_cmd.h (memakai rdParseLong) dan sys_io.h.
 //
-// ATURAN: aplikasi ini TIDAK BOLEH menyentuh RAMDisk langsung.
-// Semua operasi hanya lewat system call: sys_add_item, sys_list_items,
-// sys_update_stock, sys_delete_item.
+// ATURAN: aplikasi ini TIDAK BOLEH menyentuh RAMDisk, layar, atau keyboard langsung.
+// Data   : sys_add_item, sys_list_items, sys_update_stock, sys_delete_item.
+// Layar  : sys_print, sys_print_num.
+// Keyboard: sys_read_line.
+// Include SETELAH sys_io.h.
 
-// Baca satu baris dari keyboard (dengan echo dan backspace).
-static int stokReadLine(char *buf, int maxLen)
+static void stokShowError(RdResult r)
 {
-    int len = 0;
-    while (true)
-    {
-        char ch = keyboard.getChar();
-        if (ch == '\n')
-        {
-            console.putChar('\n');
-            buf[len] = '\0';
-            return len;
-        }
-        else if (ch == '\b')
-        {
-            if (len > 0)
-            {
-                len--;
-                console.putChar('\b');
-            }
-        }
-        else if (ch >= 32 && ch < 127 && len < maxLen - 1)
-        {
-            buf[len++] = ch;
-            console.setColor(CLR_WHITE);
-            console.putChar(ch);
-        }
-    }
+    if (r == RD_ACCESS_DENIED)
+        return; // alasan sudah dicetak oleh gerbang
+    sys_print(rdMessage(r), CLR_RED);
+    sys_print("\n", CLR_RED);
 }
 
 static void stokAsk(const char *label, char *buf, int maxLen)
 {
-    console.print(label, CLR_WHITE);
-    stokReadLine(buf, maxLen);
+    sys_print(label, CLR_WHITE);
+    sys_read_line(buf, maxLen);
 }
 
 static void stokMenuLihat()
@@ -55,19 +35,19 @@ static void stokMenuTambah()
     long stok;
     if (!rdParseLong(stokTxt, stok))
     {
-        console.print("Stok harus berupa angka.\n", CLR_RED);
+        sys_print("Stok harus berupa angka.\n", CLR_RED);
         return;
     }
     u32 id = 0;
     RdResult r = sys_add_item(nama, stok, &id);
     if (r != RD_OK)
     {
-        rdShowError(r);
+        stokShowError(r);
         return;
     }
-    console.print("Barang ditambahkan: ID ", CLR_WHITE);
-    ramdiskPrintNum(id, 0);
-    console.print(".\n", CLR_WHITE);
+    sys_print("Barang ditambahkan: ID ", CLR_WHITE);
+    sys_print_num(id, CLR_WHITE);
+    sys_print(".\n", CLR_WHITE);
 }
 
 static void stokMenuUbah()
@@ -79,20 +59,20 @@ static void stokMenuUbah()
     long id, stok;
     if (!rdParseLong(idTxt, id) || id <= 0 || !rdParseLong(stokTxt, stok))
     {
-        console.print("ID dan stok harus berupa angka.\n", CLR_RED);
+        sys_print("ID dan stok harus berupa angka.\n", CLR_RED);
         return;
     }
     RdResult r = sys_update_stock((u32)id, stok);
     if (r != RD_OK)
     {
-        rdShowError(r);
+        stokShowError(r);
         return;
     }
-    console.print("Stok barang ID ", CLR_WHITE);
-    ramdiskPrintNum((u32)id, 0);
-    console.print(" diubah menjadi ", CLR_WHITE);
-    ramdiskPrintNum((u32)stok, 0);
-    console.print(".\n", CLR_WHITE);
+    sys_print("Stok barang ID ", CLR_WHITE);
+    sys_print_num((u32)id, CLR_WHITE);
+    sys_print(" diubah menjadi ", CLR_WHITE);
+    sys_print_num((u32)stok, CLR_WHITE);
+    sys_print(".\n", CLR_WHITE);
 }
 
 static void stokMenuHapus()
@@ -103,40 +83,40 @@ static void stokMenuHapus()
     long id;
     if (!rdParseLong(idTxt, id) || id <= 0)
     {
-        console.print("ID harus berupa angka.\n", CLR_RED);
+        sys_print("ID harus berupa angka.\n", CLR_RED);
         return;
     }
     stokAsk("Yakin hapus? (Y/n) : ", yakin, sizeof(yakin));
     if (!(yakin[0] == 'Y' && yakin[1] == '\0'))
     {
-        console.print("Dibatalkan.\n", CLR_WHITE);
+        sys_print("Dibatalkan.\n", CLR_WHITE);
         return;
     }
     RdResult r = sys_delete_item((u32)id);
     if (r != RD_OK)
     {
-        rdShowError(r);
+        stokShowError(r);
         return;
     }
-    console.print("Barang ID ", CLR_WHITE);
-    ramdiskPrintNum((u32)id, 0);
-    console.print(" dihapus.\n", CLR_WHITE);
+    sys_print("Barang ID ", CLR_WHITE);
+    sys_print_num((u32)id, CLR_WHITE);
+    sys_print(" dihapus.\n", CLR_WHITE);
 }
 
 static void runStokApp()
 {
-    console.print("=== APLIKASI STOK BARANG (mode ", CLR_RED);
-    console.print(modeName(g_mode), CLR_RED);
-    console.print(") ===\n", CLR_RED);
+    sys_print("=== APLIKASI STOK BARANG (mode ", CLR_RED);
+    sys_print(modeName(g_mode), CLR_RED);
+    sys_print(") ===\n", CLR_RED);
 
     char pilih[8];
     while (true)
     {
-        console.print("\n  1. Lihat daftar barang\n", CLR_WHITE);
-        console.print("  2. Tambah barang\n", CLR_WHITE);
-        console.print("  3. Ubah jumlah stok\n", CLR_WHITE);
-        console.print("  4. Hapus barang\n", CLR_WHITE);
-        console.print("  0. Keluar\n", CLR_WHITE);
+        sys_print("\n  1. Lihat daftar barang\n", CLR_WHITE);
+        sys_print("  2. Tambah barang\n", CLR_WHITE);
+        sys_print("  3. Ubah jumlah stok\n", CLR_WHITE);
+        sys_print("  4. Hapus barang\n", CLR_WHITE);
+        sys_print("  0. Keluar\n", CLR_WHITE);
         stokAsk("Pilih> ", pilih, sizeof(pilih));
 
         if (pilih[1] != '\0')
@@ -156,10 +136,10 @@ static void runStokApp()
             stokMenuHapus();
             break;
         case '0':
-            console.print("Keluar dari aplikasi stok.\n", CLR_RED);
+            sys_print("Keluar dari aplikasi stok.\n", CLR_RED);
             return;
         default:
-            console.print("Pilihan tidak dikenal. Ketik 0-4.\n", CLR_RED);
+            sys_print("Pilihan tidak dikenal. Ketik 0-4.\n", CLR_RED);
             break;
         }
     }
