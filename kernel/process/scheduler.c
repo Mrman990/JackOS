@@ -3,29 +3,28 @@
 static thread_t *queue_head = 0;
 static thread_t *queue_tail = 0;
 static thread_t *current_thread = 0;
-static cpu_context_t scheduler_context; // konteks "dispatcher" (shell)
+static cpu_context_t scheduler_context;
 static uint32_t ticks = 0;
 static thread_log_fn logger = 0;
 
-// Pindah konteks: simpan register ke old_ctx, muat register dari new_ctx.
 void context_switch(cpu_context_t *old_ctx, cpu_context_t *new_ctx);
 __asm__(
     ".text\n"
     ".globl context_switch\n"
     "context_switch:\n"
-    "    movl 4(%esp), %eax\n"  // old_ctx
-    "    movl 8(%esp), %edx\n"  // new_ctx
+    "    movl 4(%esp), %eax\n"
+    "    movl 8(%esp), %edx\n"
     "    movl %ebx, 4(%eax)\n"
     "    movl %esi, 8(%eax)\n"
     "    movl %edi, 12(%eax)\n"
     "    movl %ebp, 16(%eax)\n"
-    "    movl %esp, 0(%eax)\n"  // esp menunjuk ke alamat kembali
+    "    movl %esp, 0(%eax)\n"
     "    movl 0(%edx), %esp\n"
     "    movl 4(%edx), %ebx\n"
     "    movl 8(%edx), %esi\n"
     "    movl 12(%edx), %edi\n"
     "    movl 16(%edx), %ebp\n"
-    "    ret\n"                 // lanjut ke alamat kembali thread tujuan
+    "    ret\n"
 );
 
 static void enqueue_thread(thread_t *t) {

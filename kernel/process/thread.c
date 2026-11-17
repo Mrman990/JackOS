@@ -88,3 +88,70 @@ thread_t *create_thread(const char *name, void (*entry_point)(void))
     scheduler_add(t); // NEW -> READY
     return t;
 }
+
+// Membuat thread khusus yang langsung masuk status WAITING setelah NEW
+// (Digunakan oleh thread Logger saat sesi inventory baru dibuka)
+thread_t *create_thread_waiting(const char *name, void (*entry_point)(void))
+{
+    thread_t *t = 0;
+    for (int i = 0; i < MAX_THREADS; i++)
+    {
+        if (!thread_pool[i].in_use)
+        {
+            t = &thread_pool[i];
+            break;
+        }
+    }
+    if (!t)
+    {
+        for (int i = 0; i < MAX_THREADS; i++)
+        {
+            if (thread_pool[i].state == THREAD_TERMINATED)
+            {
+                t = &thread_pool[i];
+                break;
+            }
+        }
+    }
+    if (!t)
+        return 0;
+
+    t->in_use = 1;
+    t->tid = next_tid++;
+    t->name = name;
+    t->entry = entry_point;
+    t->next = 0;
+    t->wake_tick = 0;
+
+    // Status awal: NEW -> WAITING (menunggu perubahan barang)
+    t->state = THREAD_NEW;
+    thread_set_state(t, THREAD_NEW);
+
+    uint32_t *stack_top = (uint32_t *)(t->stack + STACK_SIZE);
+    *(--stack_top) = (uint32_t)(uintptr_t)thread_exit;
+    *(--stack_top) = (uint32_t)(uintptr_t)entry_point;
+
+    t->context.esp = (uint32_t)(uintptr_t)stack_top;
+    t->context.eip = (uint32_t)(uintptr_t)entry_point;
+    t->context.ebx = 0;
+    t->context.esi = 0;
+    t->context.edi = 0;
+    t->context.ebp = 0;
+
+    t->state = THREAD_WAITING;
+    thread_set_state(t, THREAD_WAITING);
+    return t;
+}
+
+// Transisi status thread Logger secara eksplisit (WAITING -> READY -> RUNNING -> WAITING/TERMINATED)
+void thread_transition(thread_t *t, thread_state_t next_state)
+{
+    if (!t || !t->in_use)
+        return;
+    thread_state_t prev = t->state;
+    if (prev != next_state)
+    {
+        t->state = next_state;
+        thread_set_state(t, next_state);
+    }
+}

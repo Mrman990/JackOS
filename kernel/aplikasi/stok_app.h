@@ -1,12 +1,6 @@
 #pragma once
 // Aplikasi Stok Barang (berjalan di mode USER).
 // Include SETELAH ramdisk_cmd.h (memakai rdParseLong) dan sys_io.h.
-//
-// ATURAN: aplikasi ini TIDAK BOLEH menyentuh RAMDisk, layar, atau keyboard langsung.
-// Data   : sys_add_item, sys_list_items, sys_update_stock, sys_delete_item.
-// Layar  : sys_print, sys_print_num.
-// Keyboard: sys_read_line.
-// Include SETELAH sys_io.h.
 
 static void stokShowError(RdResult r)
 {
@@ -45,6 +39,10 @@ static void stokMenuTambah()
         stokShowError(r);
         return;
     }
+
+    // Catat perubahan TAMBAH yang berhasil ke buku log
+    invLogger.recordChange("TAMBAH", (int)id, nama, 0, (int)stok);
+
     sys_print("Barang ditambahkan: ID ", CLR_WHITE);
     sys_print_num(id, CLR_WHITE);
     sys_print(".\n", CLR_WHITE);
@@ -68,6 +66,10 @@ static void stokMenuUbah()
         stokShowError(r);
         return;
     }
+
+    // Catat perubahan UBAH yang berhasil ke buku log
+    invLogger.recordChange("UBAH", (int)id, "Barang", 0, (int)stok);
+
     sys_print("Stok barang ID ", CLR_WHITE);
     sys_print_num((u32)id, CLR_WHITE);
     sys_print(" diubah menjadi ", CLR_WHITE);
@@ -98,6 +100,10 @@ static void stokMenuHapus()
         stokShowError(r);
         return;
     }
+
+    // Catat perubahan HAPUS yang berhasil ke buku log
+    invLogger.recordChange("HAPUS", (int)id, "Barang", 0, 0);
+
     sys_print("Barang ID ", CLR_WHITE);
     sys_print_num((u32)id, CLR_WHITE);
     sys_print(" dihapus.\n", CLR_WHITE);
@@ -105,7 +111,10 @@ static void stokMenuHapus()
 
 static void runStokApp()
 {
-    sys_print("=== APLIKASI STOK BARANG (mode ", CLR_RED);
+    // Buka sesi log saat masuk menu inventory
+    invLogger.openSession();
+
+    sys_print("=== MANAJEMEN INVENTORY (mode ", CLR_RED);
     sys_print(modeName(g_mode), CLR_RED);
     sys_print(") ===\n", CLR_RED);
 
@@ -136,6 +145,8 @@ static void runStokApp()
             stokMenuHapus();
             break;
         case '0':
+            // Tutup sesi log saat keluar dari aplikasi
+            invLogger.closeSession();
             sys_print("Keluar dari aplikasi stok.\n", CLR_RED);
             return;
         default:

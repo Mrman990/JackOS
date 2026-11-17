@@ -43,23 +43,3 @@ static int sys_read_line(char *buf, int maxLen)
     kernel_leave(prev);
     return n;
 }
-
-// Demo perintah `io`: driver langsung dari USER ditolak, lewat syscall diterima.
-static void ioDemo()
-{
-    sys_print("=== DEMO PERANGKAT (layar & keyboard) ===\n", CLR_RED);
-    sys_print("Mode sekarang: ", CLR_WHITE);
-    sys_print(modeName(g_mode), CLR_WHITE);
-    sys_print("\n1) Panggil drv_screen_print() langsung dari USER:\n", CLR_WHITE);
-    bool direct = drv_screen_print("(teks ini tidak boleh tampil)\n", CLR_WHITE);
-    sys_print(direct ? "  hasil: LOLOS (salah!)\n" : "  hasil: ditolak: OK\n", direct ? CLR_RED : CLR_WHITE);
-    sys_print("2) Lewat sys_print() dan sys_read_line():\n", CLR_WHITE);
-    sys_print("  ketik sesuatu: ", CLR_WHITE);
-    char buf[40];
-    int n = sys_read_line(buf, sizeof(buf));
-    sys_print("  kamu mengetik ", CLR_WHITE);
-    sys_print_num((u32)(n < 0 ? 0 : n), CLR_WHITE);
-    sys_print(" karakter: ", CLR_WHITE);
-    sys_print(n < 0 ? "" : buf, CLR_WHITE);
-    sys_print("\n=== DEMO SELESAI ===\n", CLR_RED);
-}

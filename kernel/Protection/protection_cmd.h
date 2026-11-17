@@ -1,5 +1,5 @@
 #pragma once
-// Perintah shell untuk Protection: mode, proteksi, izin.
+// Perintah shell untuk Protection: mode (pindah USER/KERNEL), exit, izin.
 // Include SETELAH syscall.h dan ramdisk_cmd.h. Di runCommand tambah:
 //     else if (protectionCommand(cmd)) { }
 
@@ -10,31 +10,6 @@ static void protShowPerms()
     console.print(userPerms & PERM_LIST ? "  barang : ON\n" : "  barang : OFF\n", CLR_WHITE);
     console.print(userPerms & PERM_UPDATE ? "  ubah   : ON\n" : "  ubah   : OFF\n", CLR_WHITE);
     console.print(userPerms & PERM_DELETE ? "  hapus  : ON\n" : "  hapus  : OFF\n", CLR_WHITE);
-}
-
-// Demo: USER mencoba memanggil fungsi kernel langsung (ditolak),
-// lalu lewat gerbang system call (diterima).
-static void protDemo()
-{
-    console.print("=== DEMO PROTEKSI ===\n", CLR_RED);
-    console.print("Mode sekarang: ", CLR_WHITE);
-    console.print(modeName(g_mode), CLR_WHITE);
-    console.print("\n1) Panggil ramdisk_add() langsung dari USER:\n", CLR_WHITE);
-    RdResult r = ramdisk_add("Uji Proteksi", 1);
-    printResult("  hasil: ditolak", r == RD_ACCESS_DENIED);
-
-    console.print("2) Panggil lewat gerbang sys_add_item():\n", CLR_WHITE);
-    u32 id = 0;
-    r = sys_add_item("Uji Proteksi", 1, &id);
-    printResult("  hasil: diterima", r == RD_OK);
-    if (r == RD_OK)
-    {
-        sys_delete_item(id); // bersihkan barang uji
-        console.print("  (barang uji sudah dihapus lagi)\n", CLR_WHITE);
-    }
-    console.print("Mode setelah syscall: ", CLR_WHITE);
-    console.print(modeName(g_mode), CLR_WHITE);
-    console.print("\n=== DEMO SELESAI ===\n", CLR_RED);
 }
 
 // izin <tambah|barang|ubah|hapus> <on|off>
@@ -74,14 +49,43 @@ static bool protectionCommand(const char *cmd)
         console.print("Mode saat ini: ", CLR_WHITE);
         console.print(modeName(g_mode), CLR_RED);
         console.print("\n", CLR_WHITE);
-        protShowPerms();
+        if (g_mode == MODE_USER)
+            console.print("Ketik 'mode kernel' untuk pindah ke mode KERNEL.\n", CLR_WHITE);
+        else
+            console.print("Ketik 'exit' untuk kembali ke mode USER.\n", CLR_WHITE);
     }
-    else if (rdEq(cmd, "proteksi"))
-        protDemo();
+    else if (rdEq(cmd, "mode kernel"))
+    {
+        if (g_mode == MODE_KERNEL)
+            console.print("Sudah di mode KERNEL.\n", CLR_WHITE);
+        else
+        {
+            g_mode = MODE_KERNEL;
+            console.print("Pindah ke mode KERNEL. Ketik 'help' untuk Menu KERNEL.\n", CLR_RED);
+        }
+    }
+    else if (rdEq(cmd, "mode user") || rdEq(cmd, "exit"))
+    {
+        if (g_mode == MODE_USER)
+            console.print("Sudah di mode USER.\n", CLR_WHITE);
+        else
+        {
+            g_mode = MODE_USER;
+            console.print("Kembali ke mode USER. Ketik 'help' untuk Menu USER.\n", CLR_RED);
+        }
+    }
+    else if (rdStarts(cmd, "mode "))
+        console.print("Pemakaian: mode | mode kernel | mode user\n", CLR_RED);
     else if (rdStarts(cmd, "izin "))
-        protCmdIzin(cmd + 5);
+    {
+        if (requireKernelCmd("izin"))
+            protCmdIzin(cmd + 5);
+    }
     else if (rdEq(cmd, "izin"))
-        protShowPerms();
+    {
+        if (requireKernelCmd("izin"))
+            protShowPerms();
+    }
     else
         return false;
     return true;

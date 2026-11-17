@@ -44,3 +44,15 @@ static bool requireKernel(const char *fn)
     console.print(" hanya boleh dipanggil dari mode KERNEL (sekarang: USER)\n", CLR_RED);
     return false;
 }
+
+// Gerbang untuk perintah shell yang khusus mode KERNEL (threads, laporan, izin).
+// Jika masih USER: cetak "akses ditolak" dan return false.
+static bool requireKernelCmd(const char *cmd)
+{
+    if (g_mode == MODE_KERNEL)
+        return true;
+    console.print("akses ditolak: perintah '", CLR_RED);
+    console.print(cmd, CLR_RED);
+    console.print("' hanya untuk mode KERNEL. Ketik 'mode kernel' dulu.\n", CLR_RED);
+    return false;
+}
