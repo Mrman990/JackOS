@@ -1,7 +1,5 @@
 #include <stdint.h>
 #include "memori_menejeman/kmalloc.hpp"
-#include "process/process.h"
-
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -166,6 +164,7 @@ public:
     void print(const char *str) { print(str, color); }
 };
 
+
 static const char scanNormal[58] = {
     0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0,
@@ -247,18 +246,20 @@ public:
 
 static VGAConsole console;
 static Keyboard keyboard;
+
+#include "process/process.h"
+#include "process/mutex.h"
+
 #include "Protection/protection.h"
-#include "driver/driver.h"
-#include "driver/sys_io.h"
 #include "ramdisk/ramdisk.h"
 #include "Protection/syscall.h"
 #include "ramdisk/ramdisk_cmd.h"
-#include "aplikasi/stok_app.h"
 
-void inventoryTask()
-{
-    console.print("[THREAD] Task Inventory Management Berjalan (Round Robin Yield)...\n", CLR_RED);
-}
+static void printResult(const char *message, bool success);
+#include "Protection/protection_cmd.h"
+#include "driver/driver.h"
+#include "driver/sys_io.h"
+#include "aplikasi/stok_app.h"
 
 static void printNum(u32 v, u8 clr)
 {
@@ -273,6 +274,49 @@ static void printNum(u32 v, u8 clr)
         v /= 10;
     }
     console.print(&buf[i], clr);
+}
+
+static void printResult(const char *message, bool success)
+{
+    console.print(message, CLR_WHITE);
+    console.print(success ? " : OK\n" : " : GAGAL\n",
+                  success ? CLR_WHITE : CLR_RED);
+}
+// Include protection_cmd setelah printResult
+#include "Protection/protection_cmd.h"
+
+static void showMem()
+{
+    console.print("=== MEMORY MANAGEMENT ===\n", CLR_RED);
+
+    console.print("Total Heap : ", CLR_WHITE);
+    printNum((u32)mem::total(), CLR_WHITE);
+
+    console.print("\nMemori Terpakai : ", CLR_WHITE);
+    printNum((u32)mem::used(), CLR_WHITE);
+
+    console.print("\nMemori Tersedia : ", CLR_WHITE);
+    printNum((u32)(mem::total() - mem::used()), CLR_WHITE);
+
+    console.print("\n");
+}
+
+static void runMemTest()
+{
+    console.print("=== MEMORY ALLOCATION TEST ===\n", CLR_RED);
+
+    void *data = mem::alloc(1024);
+
+    if (data != nullptr)
+    {
+        console.print("Alokasi 1024 byte berhasil.\n", CLR_WHITE);
+        mem::free(data);
+        console.print("Memori berhasil dibebaskan.\n", CLR_WHITE);
+    }
+    else
+    {
+        console.print("Alokasi memori gagal.\n", CLR_RED);
+    }
 }
 
 // Dipanggil scheduler setiap status thread berubah.
@@ -377,11 +421,20 @@ static void drawTitle(int top, int left)
 static void showBanner()
 {
     console.clear();
-    drawFlag(3, 6);
-    drawTitle(5, 31);
-    console.writeAt(13, 24, "=== JACK_OS C++ KERNEL v1.2 ===", CLR_RED);
-    console.setCursor(15, 0);
-    console.print("Ketik 'mulai' untuk melihat daftar perintah.\n\n", CLR_WHITE);
+
+    console.writeAt(4, 25, "==============================", CLR_RED);
+    console.writeAt(5, 36, "JACK OS", CLR_RED);
+    console.writeAt(6, 25, "==============================", CLR_RED);
+
+    console.writeAt(10, 28, "[1] Process & Thread", CLR_WHITE);
+    console.writeAt(11, 28, "[2] Inventory Management", CLR_WHITE);
+    console.writeAt(12, 28, "[3] System & Testing", CLR_WHITE);
+    console.writeAt(13, 28, "[4] Clear", CLR_WHITE);
+    console.writeAt(14, 28, "[0] Reboot", CLR_WHITE);
+
+    console.writeAt(17, 25, "==============================", CLR_RED);
+    console.writeAt(19, 28, "Pilih menu: ", CLR_WHITE);
+    console.setCursor(19, 40);
 }
 
 // Demo 2 kernel thread dengan tugas berbeda + perubahan statusnya.
@@ -395,93 +448,6 @@ static void runDemo()
     }
     scheduler_run();
     console.print("=== DEMO SELESAI ===\n", CLR_RED);
-}
-
-static void printHex(u32 v, u8 clr)
-{
-    const char *digits = "0123456789ABCDEF";
-    char buf[11];
-    buf[0] = '0';
-    buf[1] = 'x';
-    for (int i = 0; i < 8; i++)
-        buf[2 + i] = digits[(v >> (28 - i * 4)) & 0xF];
-    buf[10] = '\0';
-    console.print(buf, clr);
-}
-
-// Ringkasan pemakaian heap.
-static void showMem()
-{
-    console.print("Heap: total ", CLR_WHITE);
-    printNum((u32)mem::total(), CLR_WHITE);
-    console.print(" B, terpakai ", CLR_WHITE);
-    printNum((u32)mem::used(), CLR_WHITE);
-    console.print(" B, bebas ", CLR_WHITE);
-    printNum((u32)(mem::total() - mem::used()), CLR_WHITE);
-    console.print(" B\n", CLR_WHITE);
-}
-
-static void printResult(const char *label, bool ok)
-{
-    console.print("  ", CLR_WHITE);
-    console.print(label, CLR_WHITE);
-    console.print(ok ? ": OK\n" : ": GAGAL\n", ok ? CLR_WHITE : CLR_RED);
-}
-
-#include "Protection/protection_cmd.h"
-
-// Tes kmalloc/kfree: alokasi, isi data, lubang bekas free, dan penggabungan blok.
-static void runMemTest()
-{
-    console.print("=== TES MEMORI ===\n", CLR_RED);
-    u32 awal = (u32)mem::used();
-    showMem();
-
-    char *a = (char *)kmalloc(100);
-    char *b = (char *)kmalloc(200);
-    char *c = (char *)kmalloc(50);
-    console.print("kmalloc a(100) = ", CLR_WHITE);
-    printHex((u32)(uintptr_t)a, CLR_WHITE);
-    console.print("\nkmalloc b(200) = ", CLR_WHITE);
-    printHex((u32)(uintptr_t)b, CLR_WHITE);
-    console.print("\nkmalloc c(50)  = ", CLR_WHITE);
-    printHex((u32)(uintptr_t)c, CLR_WHITE);
-    console.print("\n", CLR_WHITE);
-    showMem();
-    printResult("3 blok berhasil dialokasi", a && b && c && a != b && b != c);
-
-    // Data yang ditulis harus terbaca kembali utuh.
-    bool dataOk = a && c;
-    if (dataOk)
-    {
-        for (int i = 0; i < 100; i++)
-            a[i] = (char)(i + 1);
-        for (int i = 0; i < 50; i++)
-            c[i] = (char)(200 - i);
-        for (int i = 0; i < 100; i++)
-            if (a[i] != (char)(i + 1))
-                dataOk = false;
-        for (int i = 0; i < 50; i++)
-            if (c[i] != (char)(200 - i))
-                dataOk = false;
-    }
-    printResult("isi data a dan c utuh", dataOk);
-
-    // Bebaskan b, alokasi baru yang muat harus mengisi lubang bekas b.
-    kfree(b);
-    char *d = (char *)kmalloc(150);
-    printResult("d menempati lubang bekas b", d == b);
-
-    // Bebaskan semua: blok digabung, pemakaian kembali seperti awal.
-    kfree(a);
-    kfree(c);
-    kfree(d);
-    printResult("semua dibebaskan, heap kembali utuh", (u32)mem::used() == awal);
-
-    // Permintaan di luar kapasitas harus ditolak.
-    void *besar = kmalloc((size_t)mem::total() * 2);
-    printResult("alokasi terlalu besar ditolak", besar == nullptr);
-    showMem();
 }
 
 // Tabel semua thread beserta statusnya.
@@ -506,6 +472,38 @@ static void showThreads()
     if (n == 0)
         console.print("(belum ada thread)\n", CLR_WHITE);
 }
+static int stokBarang = 10;
+static mutex_t stockMutex;
+
+static void taskPenjualan()
+{
+    mutex_lock(&stockMutex);
+
+    console.print("[Penjualan] Mengakses data stok...\n", CLR_WHITE);
+
+    int stokSementara = stokBarang;
+    yield();
+
+    stokBarang = stokSementara - 2;
+
+    console.print("[Penjualan] Berhasil mengurangi stok.\n", CLR_WHITE);
+    mutex_unlock(&stockMutex);
+}
+
+static void taskRestock()
+{
+    mutex_lock(&stockMutex);
+
+    console.print("[Restock] Mengakses data stok...\n", CLR_WHITE);
+
+    int stokSementara = stokBarang;
+    yield();
+
+    stokBarang = stokSementara + 5;
+
+    console.print("[Restock] Berhasil menambah stok.\n", CLR_WHITE);
+    mutex_unlock(&stockMutex);
+}
 
 static void runCommand(const char *cmd)
 {
@@ -521,28 +519,29 @@ static void runCommand(const char *cmd)
         console.print("  inventory     - jalankan thread inventory management\n");
         console.print("  demo          - demo 2 thread + perubahan status\n");
         console.print("  threads       - tampilkan daftar thread & status\n");
-        console.print("  memori        - tampilkan pemakaian heap\n");
-        console.print("  tsmemori      - tes alokasi memori (kmalloc/kfree)\n");
-        console.print("  barang        - daftar barang (RAMDisk)\n");
-        console.print("  tambah <nama> <stok> | ubah <id> <stok> | hapus <id>\n");
-        console.print("  mode          - tampilkan mode (USER/KERNEL) & izin\n");
-        console.print("  proteksi      - demo akses ditolak vs lewat syscall\n");
-        console.print("  izin <op> <on|off> - atur izin mode USER\n");
         console.print("  echo <teks>   - cetak teks\n");
-        console.print("  io            - demo driver layar & keyboard lewat syscall\n");
-        console.print("  stok          - aplikasi stok barang (menu)\n");
         console.print("  reboot        - restart sistem\n");
     }
     else if (strEqual(cmd, "inventory"))
+{
+    console.print("=== SIMULASI INVENTORY MANAGEMENT ===\n", CLR_RED);
+
+    stokBarang = 10;
+    mutex_init(&stockMutex);
+
+    if (!create_thread("Penjualan", taskPenjualan) ||
+        !create_thread("Restock", taskRestock))
     {
-        console.print("Membuat & menjadwalkan Thread Inventory...\n", CLR_WHITE);
-        if (!create_thread("Inventory", inventoryTask))
-        {
-            console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
-            return;
-        }
-        scheduler_run();
+        console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
+        return;
     }
+
+    scheduler_run();
+
+    console.print("Stok akhir: ", CLR_WHITE);
+    printNum((u32)stokBarang, CLR_WHITE);
+    console.print("\n=== SIMULASI SELESAI ===\n", CLR_RED);
+}
     else if (strEqual(cmd, "demo"))
     {
         runDemo();
@@ -551,27 +550,9 @@ static void runCommand(const char *cmd)
     {
         showThreads();
     }
-    else if (strEqual(cmd, "memori"))
-    {
-        showMem();
-    }
-    else if (strEqual(cmd, "tsmemori"))
-    {
-        runMemTest();
-    }
-    else if (ramdiskCommand(cmd))
-    {
-    }
-    else if (protectionCommand(cmd))
-    {
-    }
     else if (strEqual(cmd, "clear"))
     {
         showBanner();
-    }
-    else if (strEqual(cmd, "io"))
-    {
-        ioDemo();
     }
     else if (strEqual(cmd, "info"))
     {
@@ -590,10 +571,6 @@ static void runCommand(const char *cmd)
         console.print("Restarting...\n", CLR_RED);
         outb(0x64, 0xFE);
     }
-    else if (strEqual(cmd, "stok"))
-    {
-        runStokApp();
-    }
     else
     {
         console.print("Perintah tidak dikenal: ", CLR_RED);
@@ -602,51 +579,105 @@ static void runCommand(const char *cmd)
     }
 }
 
+static char getMenuChoice()
+{
+    char choice = keyboard.getChar();
+    console.putChar(choice);
+    console.putChar('\n');
+
+    return choice;
+}
+
+static void mainMenu()
+{
+    while (true)
+    {
+        showBanner();
+
+        char choice = getMenuChoice();
+
+        if (choice == '1')
+        {
+            console.clear();
+            console.print("=== PROCESS & THREAD ===\n", CLR_RED);
+            console.print("[1] Demo Thread\n", CLR_WHITE);
+            console.print("[2] Daftar Thread\n", CLR_WHITE);
+            console.print("[0] Kembali\n", CLR_WHITE);
+            console.print("Pilih menu: ", CLR_WHITE);
+
+            char sub = getMenuChoice();
+
+            if (sub == '1')
+                runDemo();
+            else if (sub == '2')
+                showThreads();
+        }
+        else if (choice == '2')
+        {
+            console.clear();
+            console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
+            console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
+            console.print("[0] Kembali\n", CLR_WHITE);
+            console.print("Pilih menu: ", CLR_WHITE);
+
+            char sub = getMenuChoice();
+
+            if (sub == '1')
+                runStokApp();
+        }
+        else if (choice == '3')
+        {
+            console.clear();
+            console.print("=== SYSTEM & TESTING ===\n", CLR_RED);
+            console.print("[1] Informasi Sistem\n", CLR_WHITE);
+            console.print("[2] Memory Management\n", CLR_WHITE);
+            console.print("[3] Memory Allocation Test\n", CLR_WHITE);
+            console.print("[4] I/O Test\n", CLR_WHITE);
+            console.print("[0] Kembali\n", CLR_WHITE);
+
+            char sub = getMenuChoice();
+
+            if (sub == '1')
+            {
+                console.print("JACK OS v1.2\n", CLR_RED);
+                console.print("Arsitektur: x86 32-bit\n", CLR_WHITE);
+            }
+            else if (sub == '2')
+                showMem();
+            else if (sub == '3')
+                runMemTest();
+            else if (sub == '4')
+                ioDemo();
+        }
+        else if (choice == '4')
+        {
+            continue;
+        }
+        else if (choice == '0')
+        {
+            console.print("Restarting...\n", CLR_RED);
+            outb(0x64, 0xFE);
+        }
+        else
+        {
+            console.print("Pilihan tidak tersedia.\n", CLR_RED);
+        }
+
+        console.print("\nTekan tombol apa saja untuk kembali...");
+        keyboard.getChar();
+    }
+}
+
 extern "C" void kmain(void)
 {
-    showBanner();
     console.setColor(CLR_WHITE);
 
-    mem::init(); // Inisialisasi Heap Memori
+    mem::init();
     ramdisk.init();
 
     scheduler_init();
     scheduler_set_logger(logThreadState);
 
-    char buffer[128];
-    int len = 0;
-
-    while (true)
-    {
-        console.print(PROMPT, CLR_RED);
-        len = 0;
-
-        while (true)
-        {
-            char ch = keyboard.getChar();
-
-            if (ch == '\n')
-            {
-                console.putChar('\n');
-                buffer[len] = '\0';
-                break;
-            }
-            else if (ch == '\b')
-            {
-                if (len > 0)
-                {
-                    len--;
-                    console.putChar('\b');
-                }
-            }
-            else if (ch >= 32 && ch < 127 && len < 127)
-            {
-                buffer[len++] = ch;
-                console.setColor(CLR_WHITE);
-                console.putChar(ch);
-            }
-        }
-
-        runCommand(buffer);
-    }
+    mainMenu();
 }
+
