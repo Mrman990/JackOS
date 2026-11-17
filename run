@@ -31,3 +31,4 @@ if [ "$1" = "JACK_OS" ]; then
 
 else
     echo "Perintah tidak dikenali."
+fi
