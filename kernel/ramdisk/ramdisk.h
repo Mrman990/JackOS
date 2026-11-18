@@ -7,7 +7,7 @@
 // Aplikasi/shell harus memakai sys_* (syscall.h).
 
 #define RD_MAX_ITEMS 64
-#define RD_NAME_LEN 20       // 19 huruf + penutup '\0'
+#define RD_NAME_LEN 20 // 19 huruf + penutup '\0'
 #define RD_MAX_STOCK 1000000
 
 // Satu catatan barang: tepat 32 byte, jadi 16 catatan muat dalam 1 sektor disk (512 byte).
@@ -147,7 +147,9 @@ struct RamDisk
         {
             if (items[i].used)
                 continue;
-            items[i].id = nextId++;
+            // Slot selalu rapat (tanpa lubang), jadi slot kosong pertama = barang ke-(jumlah+1).
+            items[i].id = (u32)(i + 1);
+            nextId = (u32)(i + 2);
             for (int c = 0; c < RD_NAME_LEN; c++)
                 items[i].name[c] = '\0';
             for (int c = 0; c < len; c++)
@@ -176,17 +178,31 @@ struct RamDisk
         return RD_OK;
     }
 
-    // ID yang sudah dihapus tidak dipakai ulang (nextId hanya naik).
+    // Hapus barang, lalu rapatkan: barang di bawahnya naik satu slot dan ID-nya turun satu,
+    // sehingga ID selalu berurutan 1..N tanpa lompatan (ID = nomor slot + 1).
     RdResult remove(u32 id)
     {
         RdItem *it = find(id);
         if (!it)
             return RD_NOT_FOUND;
-        it->used = 0;
-        it->id = 0;
-        it->stock = 0;
+        int idx = (int)(it - items);
+        // Geser per field (tanpa menyalin struct utuh agar tidak memanggil memcpy).
+        for (int j = idx; j < RD_MAX_ITEMS - 1; j++)
+        {
+            items[j].used = items[j + 1].used;
+            items[j].id = items[j + 1].used ? (u32)(j + 1) : 0;
+            items[j].stock = items[j + 1].stock;
+            for (int c = 0; c < RD_NAME_LEN; c++)
+                items[j].name[c] = items[j + 1].name[c];
+        }
+        // Slot paling akhir dikosongkan.
+        RdItem &last = items[RD_MAX_ITEMS - 1];
+        last.used = 0;
+        last.id = 0;
+        last.stock = 0;
         for (int c = 0; c < RD_NAME_LEN; c++)
-            it->name[c] = '\0';
+            last.name[c] = '\0';
+        nextId = count() + 1;
         dirty = true;
         return RD_OK;
     }
@@ -194,9 +210,7 @@ struct RamDisk
 
 static RamDisk ramdisk;
 
-// ============ 4 fungsi kernel RAMDisk ============
 
-// Tambah barang baru. newId (opsional) menerima ID yang dibuat.
 static RdResult ramdisk_add(const char *name, long stock, u32 *newId = nullptr)
 {
     if (!requireKernel("ramdisk_add"))
@@ -204,7 +218,6 @@ static RdResult ramdisk_add(const char *name, long stock, u32 *newId = nullptr)
     return ramdisk.add(name, stock, newId);
 }
 
-// Ubah jumlah stok barang berdasarkan ID.
 static RdResult ramdisk_update(u32 id, long stock)
 {
     if (!requireKernel("ramdisk_update"))
@@ -212,7 +225,6 @@ static RdResult ramdisk_update(u32 id, long stock)
     return ramdisk.update(id, stock);
 }
 
-// Hapus barang berdasarkan ID. ID yang sudah dihapus tidak dipakai ulang.
 static RdResult ramdisk_delete(u32 id)
 {
     if (!requireKernel("ramdisk_delete"))

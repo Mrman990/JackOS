@@ -12,6 +12,7 @@ extern "C"
 #define STACK_SIZE 2048 // stack per thread (byte)
 #endif
 #define MAX_THREADS 10
+#define WAIT_EVENT 0xFFFFFFFFu // wake_tick khusus: thread menunggu kejadian (bukan waktu)
 
     // Status thread (State Transition)
     typedef enum
@@ -66,6 +67,8 @@ extern "C"
     void scheduler_run(void);                             // jalankan sampai semua thread selesai
     void yield(void);                                     // RUNNING -> READY
     void thread_sleep(uint32_t ticks);                    // RUNNING -> WAITING
+    void thread_wait_event(void);                         // RUNNING -> WAITING sampai dibangunkan thread_wake
+    void thread_wake(thread_t *t);                        // WAITING -> READY (untuk thread_wait_event)
     thread_t *get_current_thread(void);
     uint32_t scheduler_ticks(void);
 

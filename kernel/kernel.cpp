@@ -8,10 +8,12 @@ typedef unsigned short u16;
 typedef unsigned int u32;
 
 // --- IMPLEMENTASI MEMCPY FREESTANDING (Mencegah linker error undefined symbol: memcpy) ---
-extern "C" void* memcpy(void* dest, const void* src, size_t n) {
-    char* d = (char*)dest;
-    const char* s = (const char*)src;
-    for (size_t i = 0; i < n; i++) {
+extern "C" void *memcpy(void *dest, const void *src, size_t n)
+{
+    char *d = (char *)dest;
+    const char *s = (const char *)src;
+    for (size_t i = 0; i < n; i++)
+    {
         d[i] = s[i];
     }
     return dest;
@@ -104,7 +106,7 @@ private:
                 setCell(r * 80 + c, cell);
             }
         }
-        const char *tag = " RIWAYAT - PgDn/End: kembali ";
+        const char *tag = " RIWAYAT - gulir ke bawah / End ";
         int len = 0;
         while (tag[len])
             len++;
@@ -279,6 +281,107 @@ static const char scanShift[58] = {
 
 static void consoleScroll(int lines);
 
+#define MOUSE_SCROLL_LINES 3
+#define MOUSE_WHEEL_INVERT 0
+static bool ps2WaitWrite()
+{
+    for (int i = 0; i < 20000; i++)
+        if (!(inb(0x64) & 2))
+            return true;
+    return false;
+}
+
+static bool ps2WaitRead()
+{
+    for (int i = 0; i < 20000; i++)
+        if (inb(0x64) & 1)
+            return true;
+    return false;
+}
+
+// Kirim satu byte ke mouse, tunggu ACK (0xFA).
+static bool mouseSend(u8 v)
+{
+    if (!ps2WaitWrite())
+        return false;
+    outb(0x64, 0xD4);
+    if (!ps2WaitWrite())
+        return false;
+    outb(0x60, v);
+    for (int tries = 0; tries < 4; tries++)
+    {
+        if (!ps2WaitRead())
+            return false;
+        if (inb(0x60) == 0xFA)
+            return true;
+    }
+    return false;
+}
+
+static bool mouseWheel; // true = mouse punya roda (paket 4 byte)
+static bool mouseReady;
+static u8 mousePkt[4];
+static int mouseIdx;
+
+static void mouseInit()
+{
+    while (inb(0x64) & 1) // kosongkan buffer controller
+        inb(0x60);
+    if (!ps2WaitWrite())
+        return;
+    outb(0x64, 0xA8); // aktifkan port mouse
+    if (!ps2WaitWrite())
+        return;
+    outb(0x64, 0x20); // baca byte konfigurasi
+    if (!ps2WaitRead())
+        return;
+    u8 cfg = inb(0x60);
+    cfg &= (u8)~0x20; // clock mouse hidup
+    cfg &= (u8)~0x02; // tanpa IRQ12 (kita polling)
+    if (!ps2WaitWrite())
+        return;
+    outb(0x64, 0x60);
+    if (!ps2WaitWrite())
+        return;
+    outb(0x60, cfg);
+
+    if (!mouseSend(0xF6)) // setelan bawaan
+        return;
+    // Urutan sample rate 200, 100, 80 mengaktifkan roda (mode IntelliMouse).
+    mouseSend(0xF3);
+    mouseSend(200);
+    mouseSend(0xF3);
+    mouseSend(100);
+    mouseSend(0xF3);
+    mouseSend(80);
+    if (mouseSend(0xF2) && ps2WaitRead()) // minta ID perangkat: 3 = mouse beroda
+        mouseWheel = (inb(0x60) == 3);
+    if (!mouseSend(0xF4)) // mulai kirim data
+        return;
+    mouseReady = true;
+}
+
+// Terima satu byte data mouse; tiap paket lengkap memproses gerakan roda.
+static void mouseFeed(u8 b)
+{
+    int need = mouseWheel ? 4 : 3;
+    if (mouseIdx == 0 && !(b & 0x08)) // byte pertama selalu punya bit 3: untuk sinkronisasi
+        return;
+    mousePkt[mouseIdx++] = b;
+    if (mouseIdx < need)
+        return;
+    mouseIdx = 0;
+    if (!mouseWheel)
+        return;
+    int z = mousePkt[3] & 0x0F;
+    if (z & 0x08)
+        z -= 16; // bertanda: negatif = roda ke atas
+    if (MOUSE_WHEEL_INVERT)
+        z = -z;
+    if (z != 0)
+        consoleScroll(-z * MOUSE_SCROLL_LINES); // roda ke atas -> riwayat naik
+}
+
 class Keyboard
 {
 private:
@@ -293,8 +396,16 @@ public:
     {
         while (true)
         {
-            if (!(inb(0x64) & 1))
+            u8 st = inb(0x64);
+            if (!(st & 1))
                 continue;
+            if (st & 0x20)
+            {
+                u8 mb = inb(0x60);
+                if (mouseReady)
+                    mouseFeed(mb);
+                continue;
+            }
 
             u8 sc = inb(0x60);
 
@@ -306,11 +417,7 @@ public:
             if (extended)
             {
                 extended = false;
-                if (sc == 0x49)
-                    consoleScroll(10);
-                else if (sc == 0x51)
-                    consoleScroll(-10);
-                else if (sc == 0x48)
+                if (sc == 0x48)
                     consoleScroll(1);
                 else if (sc == 0x50)
                     consoleScroll(-1);
@@ -370,8 +477,10 @@ static void consoleScroll(int lines)
 #include "driver/driver.h"
 #include "driver/sys_io.h"
 #include "ramdisk/ramdisk.h"
+#include "logbook/logbook.h"
 #include "Protection/syscall.h"
 #include "ramdisk/ramdisk_cmd.h"
+#include "aplikasi/stok_app.h"
 
 static void printNum(u32 v, u8 clr)
 {
@@ -387,227 +496,6 @@ static void printNum(u32 v, u8 clr)
     }
     console.print(&buf[i], clr);
 }
-
-// --- PEMBACA JAM CMOS (RTC) ---
-static u8 readCMOS(u8 reg)
-{
-    outb(0x70, reg);
-    return inb(0x71);
-}
-
-static u8 bcdToBin(u8 val)
-{
-    return (val & 0x0F) + ((val / 16) * 10);
-}
-
-static void getCMOSTime(u8 &jam, u8 &menit, u8 &detik)
-{
-    while (readCMOS(0x0A) & 0x80)
-        ;
-    detik = readCMOS(0x00);
-    menit = readCMOS(0x02);
-    jam = readCMOS(0x04);
-
-    u8 regB = readCMOS(0x0B);
-    if (!(regB & 0x04))
-    {
-        detik = bcdToBin(detik);
-        menit = bcdToBin(menit);
-        jam = bcdToBin(jam);
-    }
-}
-
-// --- SISTEM BUKU LOG INVENTORY (MAX 50 BARIS) ---
-#define MAX_LOG_ENTRIES 50
-
-struct LogEntry
-{
-    u32 seq;
-    u8 jam, menit, detik;
-    char jenis[16]; // "SESI", "TAMBAH", "UBAH", "HAPUS"
-    int itemId;     // -1 jika event sesi
-    char namaBarang[32];
-    int stokLama;
-    int stokBaru;
-};
-
-extern "C" thread_t *create_thread_waiting(const char *name, void (*entry_point)(void));
-extern "C" void thread_transition(thread_t *t, thread_state_t next_state);
-
-static void dummyLoggerEntry() {}
-
-class InventoryLogger
-{
-private:
-    LogEntry entries[MAX_LOG_ENTRIES];
-    int head = 0;
-    int count = 0;
-    u32 nextSeq = 1;
-    thread_t *loggerThread = nullptr;
-    LogEntry pendingEntry;
-
-    void writeToBook(const LogEntry &e)
-    {
-        // Penyalinan manual per atribut (menghindari memcpy implisit)
-        entries[head].seq = e.seq;
-        entries[head].jam = e.jam;
-        entries[head].menit = e.menit;
-        entries[head].detik = e.detik;
-        for (int i = 0; i < 16; i++)
-            entries[head].jenis[i] = e.jenis[i];
-        entries[head].itemId = e.itemId;
-        for (int i = 0; i < 32; i++)
-            entries[head].namaBarang[i] = e.namaBarang[i];
-        entries[head].stokLama = e.stokLama;
-        entries[head].stokBaru = e.stokBaru;
-
-        head = (head + 1) % MAX_LOG_ENTRIES;
-        if (count < MAX_LOG_ENTRIES)
-            count++;
-    }
-
-    void copyStr(char *dst, const char *src, int maxLen)
-    {
-        int i = 0;
-        while (src && src[i] != '\0' && i < maxLen - 1)
-        {
-            dst[i] = src[i];
-            i++;
-        }
-        dst[i] = '\0';
-    }
-
-    void printTwoDigits(u8 v, u8 clr)
-    {
-        if (v < 10)
-            console.print("0", clr);
-        printNum(v, clr);
-    }
-
-public:
-    // Dipanggil saat pengguna membuka Manajemen inventory (inventory)
-    void openSession()
-    {
-        loggerThread = create_thread_waiting("Logger", dummyLoggerEntry);
-
-        LogEntry e;
-        e.seq = nextSeq++;
-        getCMOSTime(e.jam, e.menit, e.detik);
-        copyStr(e.jenis, "SESI", 16);
-        e.itemId = -1;
-        copyStr(e.namaBarang, "MASUK inventory", 32);
-        e.stokLama = 0;
-        e.stokBaru = 0;
-
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_READY);
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_RUNNING);
-        writeToBook(e);
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_WAITING);
-    }
-
-    // Dipanggil setiap kali operasi TAMBAH, UBAH, atau HAPUS berhasil
-    void recordChange(const char *jenis, int id, const char *nama, int stokLama, int stokBaru)
-    {
-        pendingEntry.seq = nextSeq++;
-        getCMOSTime(pendingEntry.jam, pendingEntry.menit, pendingEntry.detik);
-        copyStr(pendingEntry.jenis, jenis, 16);
-        pendingEntry.itemId = id;
-        copyStr(pendingEntry.namaBarang, nama, 32);
-        pendingEntry.stokLama = stokLama;
-        pendingEntry.stokBaru = stokBaru;
-
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_READY);
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_RUNNING);
-        writeToBook(pendingEntry);
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_WAITING);
-    }
-
-    // Dipanggil saat pengguna keluar dari Manajemen inventory (menu 0)
-    void closeSession()
-    {
-        LogEntry e;
-        e.seq = nextSeq++;
-        getCMOSTime(e.jam, e.menit, e.detik);
-        copyStr(e.jenis, "SESI", 16);
-        e.itemId = -1;
-        copyStr(e.namaBarang, "KELUAR inventory", 32);
-        e.stokLama = 0;
-        e.stokBaru = 0;
-
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_READY);
-        if (loggerThread)
-            thread_transition(loggerThread, THREAD_RUNNING);
-        writeToBook(e);
-        if (loggerThread)
-        {
-            thread_transition(loggerThread, THREAD_TERMINATED);
-            loggerThread = nullptr;
-        }
-    }
-
-    // Dipanggil dari perintah 'log' di mode KERNEL
-    void printLogs()
-    {
-        console.print("=== BUKU LOG INVENTORY (50 TERAKHIR) ===\n", CLR_RED);
-        if (count == 0)
-        {
-            console.print("(Buku log masih kosong)\n", CLR_WHITE);
-            return;
-        }
-
-        int oldest = (head - count + MAX_LOG_ENTRIES) % MAX_LOG_ENTRIES;
-        for (int i = 0; i < count; i++)
-        {
-            const LogEntry &e = entries[(oldest + i) % MAX_LOG_ENTRIES];
-            console.print("#", CLR_WHITE);
-            printNum(e.seq, CLR_WHITE);
-            console.print(" [", CLR_WHITE);
-            printTwoDigits(e.jam, CLR_WHITE);
-            console.print(":", CLR_WHITE);
-            printTwoDigits(e.menit, CLR_WHITE);
-            console.print(":", CLR_WHITE);
-            printTwoDigits(e.detik, CLR_WHITE);
-            console.print("] ", CLR_WHITE);
-
-            if (strEqual(e.jenis, "SESI"))
-            {
-                console.print(e.namaBarang, CLR_RED);
-                console.print("\n", CLR_WHITE);
-            }
-            else
-            {
-                console.print(e.jenis, CLR_RED);
-                console.print(" | ID:", CLR_WHITE);
-                printNum((u32)e.itemId, CLR_WHITE);
-                console.print(" | ", CLR_WHITE);
-                console.print(e.namaBarang, CLR_WHITE);
-                console.print(" | Stok: ", CLR_WHITE);
-                if (strEqual(e.jenis, "UBAH"))
-                {
-                    printNum((u32)e.stokLama, CLR_WHITE);
-                    console.print(" -> ", CLR_WHITE);
-                    printNum((u32)e.stokBaru, CLR_WHITE);
-                }
-                else
-                {
-                    printNum((u32)e.stokBaru, CLR_WHITE);
-                }
-                console.print("\n", CLR_WHITE);
-            }
-        }
-    }
-};
-
-static InventoryLogger invLogger;
-
-#include "aplikasi/stok_app.h"
 
 // Dipanggil scheduler setiap status thread berubah.
 // Aturan 4: Perubahan status thread hanya ditampilkan saat mode KERNEL.
@@ -863,6 +751,30 @@ static void showThreads()
         console.print("(belum ada thread)\n", CLR_WHITE);
 }
 
+static void printUserMenu()
+{
+    console.print("=== MENU UTAMA USER ===\n", CLR_RED);
+    console.print("  help                - tampilkan bantuan ini\n");
+    console.print("  inventory           - Manajemen inventory\n");
+    console.print("  info                - informasi\n");
+    console.print("  mode                - tampilkan mode; 'mode kernel' pindah ke mode KERNEL\n");
+    console.print("  clear               - bersihkan layar\n");
+    console.print("  echo <teks>         - cetak teks\n");
+    console.print("  reboot              - restart sistem\n");
+}
+
+static void printKernelMenu()
+{
+    console.print("=== MENU UTAMA KERNEL ===\n", CLR_RED);
+    console.print("  help          - tampilkan bantuan ini\n");
+    console.print("  threads       - tampilkan daftar thread & status\n");
+    console.print("  log           - baca buku log aktivitas inventory\n");
+    console.print("  laporan       - laporan stok oleh 2 thread (data asli RAMDisk)\n");
+    console.print("  izin          - Akses sistem Inventory on and off\n");
+    console.print("  exit          - kembali ke mode USER\n");
+    console.print("  (perintah Menu USER juga tetap bisa dipakai di mode ini)\n");
+}
+
 static void runCommand(const char *cmd)
 {
     if (cmd[0] == '\0')
@@ -871,28 +783,27 @@ static void runCommand(const char *cmd)
     if (strEqual(cmd, "help") || strEqual(cmd, "mulai"))
     {
         if (g_mode == MODE_KERNEL)
-        {
-            console.print("=== MENU UTAMA KERNEL ===\n", CLR_RED);
-            console.print("  help          - tampilkan bantuan ini\n");
-            console.print("  threads       - tampilkan daftar thread & status\n");
-            console.print("  log           - baca buku log aktivitas inventory\n");
-            console.print("  laporan       - laporan stok oleh 2 thread (data asli RAMDisk)\n");
-            console.print("  izin <op> <on|off> - Akses sistem Inventory (atur izin mode USER)\n");
-            console.print("  exit          - kembali ke mode USER\n");
-            console.print("  (perintah Menu USER juga tetap bisa dipakai di mode ini)\n");
-        }
+            printKernelMenu();
         else
+            printUserMenu();
+    }
+    else if (strEqual(cmd, "mode kernel"))
+    {
+        if (g_mode != MODE_KERNEL)
         {
-            console.print("=== MENU UTAMA USER ===\n", CLR_RED);
-            console.print("  help                - tampilkan bantuan ini\n");
-            console.print("  inventory           - Manajemen inventory\n");
-            console.print("  info                - informasi\n");
-            console.print("  mode                - tampilkan mode; 'mode kernel' pindah ke mode KERNEL\n");
-            console.print("  clear               - bersihkan layar\n");
-            console.print("  echo <teks>         - cetak teks\n");
-            console.print("  reboot              - restart sistem\n");
+            kernel_enter(); // g_mode = MODE_KERNEL
+            console.print("[MODE] USER -> KERNEL\n", CLR_RED);
         }
-        console.print("Gulir layar: PgUp/PgDn, panah atas/bawah, Home, End.\n", CLR_WHITE);
+        printKernelMenu();
+    }
+    else if (strEqual(cmd, "exit"))
+    {
+        if (g_mode == MODE_KERNEL)
+        {
+            kernel_leave(MODE_USER); // g_mode = MODE_USER
+            console.print("[MODE] KERNEL -> USER\n", CLR_RED);
+        }
+        printUserMenu();
     }
     else if (strEqual(cmd, "inventory"))
     {
@@ -906,7 +817,7 @@ static void runCommand(const char *cmd)
         }
         else
         {
-            invLogger.printLogs();
+            logbook_show();
         }
     }
     else if (strEqual(cmd, "laporan"))
@@ -955,6 +866,7 @@ extern "C" void kmain(void)
 {
     showBanner();
     console.setColor(CLR_WHITE);
+    mouseInit(); // aktifkan roda gulir mouse/trackpad
 
     mem::init(); // Inisialisasi Heap Memori
     ramdisk.init();
