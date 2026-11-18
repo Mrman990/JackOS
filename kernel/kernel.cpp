@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "memori_menejeman/kmalloc.hpp"
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -22,9 +23,11 @@ static bool strEqual(const char *a, const char *b)
     {
         if (*a != *b)
             return false;
+
         a++;
         b++;
     }
+
     return *a == *b;
 }
 
@@ -34,9 +37,11 @@ static bool startsWith(const char *s, const char *prefix)
     {
         if (*s != *prefix)
             return false;
+
         s++;
         prefix++;
     }
+
     return true;
 }
 
@@ -52,35 +57,49 @@ private:
     int col = 0;
     u8 color;
 
-    static volatile u8 *vga() { return (volatile u8 *)0xb8000; }
+    static volatile u8 *vga()
+    {
+        return (volatile u8 *)0xb8000;
+    }
+
     void updateCursor()
     {
         u16 pos = row * 80 + col;
+
         outb(0x3D4, 0x0F);
         outb(0x3D5, (u8)(pos & 0xFF));
+
         outb(0x3D4, 0x0E);
         outb(0x3D5, (u8)((pos >> 8) & 0xFF));
     }
+
     void scroll()
     {
         for (int r = 1; r < 25; r++)
         {
             for (int c = 0; c < 80 * 2; c++)
             {
-                vga()[(r - 1) * 80 * 2 + c] = vga()[r * 80 * 2 + c];
+                vga()[(r - 1) * 80 * 2 + c] =
+                    vga()[r * 80 * 2 + c];
             }
         }
+
         for (int c = 0; c < 80; c++)
         {
             vga()[24 * 80 * 2 + c * 2] = ' ';
             vga()[24 * 80 * 2 + c * 2 + 1] = 0x07;
         }
+
         row = 24;
     }
 
 public:
     VGAConsole() : color(0x07) {}
-    void setColor(u8 c) { color = c; }
+
+    void setColor(u8 c)
+    {
+        color = c;
+    }
 
     void clear()
     {
@@ -89,19 +108,25 @@ public:
             vga()[i] = ' ';
             vga()[i + 1] = 0x07;
         }
+
         row = 0;
         col = 0;
+
         updateCursor();
     }
+
     void setCursor(int r, int c)
     {
         row = r;
         col = c;
+
         updateCursor();
     }
+
     void writeAt(int r, int c, const char *str, u8 clr)
     {
         int offset = (r * 80 + c) * 2;
+
         for (int i = 0; str[i] != '\0'; i++)
         {
             vga()[offset] = str[i];
@@ -114,7 +139,9 @@ public:
     {
         if (r < 0 || r >= 25 || c < 0 || c >= 80)
             return;
+
         int offset = (r * 80 + c) * 2;
+
         vga()[offset] = ch;
         vga()[offset + 1] = clr;
     }
@@ -131,7 +158,9 @@ public:
             if (col > 0)
             {
                 col--;
+
                 int off = (row * 80 + col) * 2;
+
                 vga()[off] = ' ';
                 vga()[off + 1] = color;
             }
@@ -139,17 +168,22 @@ public:
         else
         {
             int off = (row * 80 + col) * 2;
+
             vga()[off] = ch;
             vga()[off + 1] = color;
+
             col++;
+
             if (col >= 80)
             {
                 col = 0;
                 row++;
             }
         }
+
         if (row >= 25)
             scroll();
+
         updateCursor();
     }
 
@@ -157,13 +191,18 @@ public:
     {
         u8 old = color;
         color = clr;
+
         for (int i = 0; str[i] != '\0'; i++)
             putChar(str[i]);
+
         color = old;
     }
-    void print(const char *str) { print(str, color); }
-};
 
+    void print(const char *str)
+    {
+        print(str, color);
+    }
+};
 
 static const char scanNormal[58] = {
     0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', '\t',
@@ -201,6 +240,7 @@ public:
                 extended = true;
                 continue;
             }
+
             if (extended)
             {
                 extended = false;
@@ -212,11 +252,13 @@ public:
                 shift = true;
                 continue;
             }
+
             if (sc == 0xAA || sc == 0xB6)
             {
                 shift = false;
                 continue;
             }
+
             if (sc == 0x3A)
             {
                 caps = !caps;
@@ -225,6 +267,7 @@ public:
 
             if (sc & 0x80)
                 continue;
+
             if (sc >= 58)
                 continue;
 
@@ -256,6 +299,7 @@ static Keyboard keyboard;
 #include "ramdisk/ramdisk_cmd.h"
 
 static void printResult(const char *message, bool success);
+
 #include "Protection/protection_cmd.h"
 #include "driver/driver.h"
 #include "driver/sys_io.h"
@@ -265,25 +309,55 @@ static void printNum(u32 v, u8 clr)
 {
     char buf[12];
     int i = 11;
+
     buf[i] = '\0';
+
     if (v == 0)
         buf[--i] = '0';
+
     while (v > 0)
     {
         buf[--i] = (char)('0' + v % 10);
         v /= 10;
     }
+
     console.print(&buf[i], clr);
 }
 
 static void printResult(const char *message, bool success)
 {
     console.print(message, CLR_WHITE);
-    console.print(success ? " : OK\n" : " : GAGAL\n",
-                  success ? CLR_WHITE : CLR_RED);
+
+    console.print(
+        success ? " : OK\n" : " : GAGAL\n",
+        success ? CLR_WHITE : CLR_RED);
 }
-// Include protection_cmd setelah printResult
-#include "Protection/protection_cmd.h"
+
+// Dipanggil scheduler setiap status thread berubah.
+static void logThreadState(
+    const thread_t *t,
+    thread_state_t from,
+    thread_state_t to)
+{
+    console.print("[T", CLR_RED);
+    printNum(t->tid, CLR_RED);
+    console.print(" ", CLR_RED);
+    console.print(t->name, CLR_RED);
+    console.print("] ", CLR_RED);
+
+    if (from == to)
+    {
+        console.print(thread_state_name(to), CLR_WHITE);
+    }
+    else
+    {
+        console.print(thread_state_name(from), CLR_WHITE);
+        console.print(" -> ", CLR_WHITE);
+        console.print(thread_state_name(to), CLR_WHITE);
+    }
+
+    console.print("\n", CLR_WHITE);
+}
 
 static void showMem()
 {
@@ -311,6 +385,7 @@ static void runMemTest()
     {
         console.print("Alokasi 1024 byte berhasil.\n", CLR_WHITE);
         mem::free(data);
+
         console.print("Memori berhasil dibebaskan.\n", CLR_WHITE);
     }
     else
@@ -319,36 +394,17 @@ static void runMemTest()
     }
 }
 
-// Dipanggil scheduler setiap status thread berubah.
-static void logThreadState(const thread_t *t, thread_state_t from, thread_state_t to)
-{
-    console.print("[T", CLR_RED);
-    printNum(t->tid, CLR_RED);
-    console.print(" ", CLR_RED);
-    console.print(t->name, CLR_RED);
-    console.print("] ", CLR_RED);
-    if (from == to)
-    {
-        console.print(thread_state_name(to), CLR_WHITE);
-    }
-    else
-    {
-        console.print(thread_state_name(from), CLR_WHITE);
-        console.print(" -> ", CLR_WHITE);
-        console.print(thread_state_name(to), CLR_WHITE);
-    }
-    console.print("\n", CLR_WHITE);
-}
-
-// Tugas 1: menghitung stok, lalu menunggu (WAITING) sebelum selesai.
+// Tugas 1: menghitung stok, lalu menunggu sebelum selesai.
 static void taskData()
 {
     console.print("  [Data] menghitung stok barang...\n", CLR_WHITE);
+
     thread_sleep(2);
+
     console.print("  [Data] stok selesai dihitung.\n", CLR_WHITE);
 }
 
-// Tugas 2: memeriksa sistem, melepas giliran (READY) di tiap pemeriksaan.
+// Tugas 2: memeriksa sistem, melepas giliran di tiap pemeriksaan.
 static void taskMonitor()
 {
     for (int i = 1; i <= 2; i++)
@@ -356,6 +412,7 @@ static void taskMonitor()
         console.print("  [Monitor] cek sistem ke-", CLR_WHITE);
         printNum((u32)i, CLR_WHITE);
         console.print("\n", CLR_WHITE);
+
         yield();
     }
 }
@@ -373,16 +430,23 @@ static const char *const FONT[7][5] = {
 
 static void drawFlag(int top, int left)
 {
-    static const int wave[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+    static const int wave[8] = {
+        0, 1, 1, 1, 0, -1, -1, -1};
 
     for (int x = 0; x < 20; x++)
     {
         for (int b = 0; b < 8; b++)
         {
             u8 clr = (b < 4) ? CLR_RED : CLR_WHITE;
-            console.putCell(top + b + wave[x % 8], left + x, CH_BLOCK, clr);
+
+            console.putCell(
+                top + b + wave[x % 8],
+                left + x,
+                CH_BLOCK,
+                clr);
         }
     }
+
     for (int r = top - 1; r < top + 10; r++)
         console.putCell(r, left - 1, CH_BLOCK, CLR_POLE);
 }
@@ -403,11 +467,17 @@ static void drawGlyph(int glyph, int top, int left)
     for (int row = 0; row < FONT_HEIGHT; row++)
     {
         u8 color = colorForTitleRow(row);
+
         for (int col = 0; col < FONT_WIDTH; col++)
         {
             if (FONT[glyph][row][col] != '#')
                 continue;
-            console.putCell(top + row, left + col, CH_BLOCK, color);
+
+            console.putCell(
+                top + row,
+                left + col,
+                CH_BLOCK,
+                color);
         }
     }
 }
@@ -418,22 +488,28 @@ static void drawTitle(int top, int left)
         drawGlyph(glyph, top, left + glyph * GLYPH_SPACING);
 }
 
+// ============================================================
+// BANNER JACK OS
+// ============================================================
+
 static void showBanner()
 {
     console.clear();
 
-    console.writeAt(4, 25, "==============================", CLR_RED);
-    console.writeAt(5, 36, "JACK OS", CLR_RED);
-    console.writeAt(6, 25, "==============================", CLR_RED);
+    // Bendera Merah Putih
+    drawFlag(1, 3);
 
+    // Judul JACK OS dengan desain huruf blok lama
+    drawTitle(4, 25);
+
+    // Menu utama
     console.writeAt(10, 28, "[1] Process & Thread", CLR_WHITE);
     console.writeAt(11, 28, "[2] Inventory Management", CLR_WHITE);
     console.writeAt(12, 28, "[3] System & Testing", CLR_WHITE);
     console.writeAt(13, 28, "[4] Clear", CLR_WHITE);
     console.writeAt(14, 28, "[0] Reboot", CLR_WHITE);
-
-    console.writeAt(17, 25, "==============================", CLR_RED);
     console.writeAt(19, 28, "Pilih menu: ", CLR_WHITE);
+
     console.setCursor(19, 40);
 }
 
@@ -441,12 +517,16 @@ static void showBanner()
 static void runDemo()
 {
     console.print("=== DEMO KERNEL THREAD ===\n", CLR_RED);
-    if (!create_thread("Data", taskData) || !create_thread("Monitor", taskMonitor))
+
+    if (!create_thread("Data", taskData) ||
+        !create_thread("Monitor", taskMonitor))
     {
         console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
         return;
     }
+
     scheduler_run();
+
     console.print("=== DEMO SELESAI ===\n", CLR_RED);
 }
 
@@ -454,13 +534,18 @@ static void runDemo()
 static void showThreads()
 {
     console.print("ID   NAMA       STATUS\n", CLR_RED);
+
     int n = 0;
+
     for (int i = 0; i < thread_count(); i++)
     {
         thread_t *t = thread_at(i);
+
         if (!t->in_use)
             continue;
+
         n++;
+
         console.print("T", CLR_WHITE);
         printNum(t->tid, CLR_WHITE);
         console.print("   ", CLR_WHITE);
@@ -469,9 +554,11 @@ static void showThreads()
         console.print(thread_state_name(t->state), CLR_WHITE);
         console.print("\n", CLR_WHITE);
     }
+
     if (n == 0)
         console.print("(belum ada thread)\n", CLR_WHITE);
 }
+
 static int stokBarang = 10;
 static mutex_t stockMutex;
 
@@ -487,6 +574,7 @@ static void taskPenjualan()
     stokBarang = stokSementara - 2;
 
     console.print("[Penjualan] Berhasil mengurangi stok.\n", CLR_WHITE);
+
     mutex_unlock(&stockMutex);
 }
 
@@ -502,6 +590,7 @@ static void taskRestock()
     stokBarang = stokSementara + 5;
 
     console.print("[Restock] Berhasil menambah stok.\n", CLR_WHITE);
+
     mutex_unlock(&stockMutex);
 }
 
@@ -523,25 +612,25 @@ static void runCommand(const char *cmd)
         console.print("  reboot        - restart sistem\n");
     }
     else if (strEqual(cmd, "inventory"))
-{
-    console.print("=== SIMULASI INVENTORY MANAGEMENT ===\n", CLR_RED);
-
-    stokBarang = 10;
-    mutex_init(&stockMutex);
-
-    if (!create_thread("Penjualan", taskPenjualan) ||
-        !create_thread("Restock", taskRestock))
     {
-        console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
-        return;
+        console.print("=== SIMULASI INVENTORY MANAGEMENT ===\n", CLR_RED);
+
+        stokBarang = 10;
+        mutex_init(&stockMutex);
+
+        if (!create_thread("Penjualan", taskPenjualan) ||
+            !create_thread("Restock", taskRestock))
+        {
+            console.print("Thread penuh (maksimal 10 thread).\n", CLR_RED);
+            return;
+        }
+
+        scheduler_run();
+
+        console.print("Stok akhir: ", CLR_WHITE);
+        printNum((u32)stokBarang, CLR_WHITE);
+        console.print("\n=== SIMULASI SELESAI ===\n", CLR_RED);
     }
-
-    scheduler_run();
-
-    console.print("Stok akhir: ", CLR_WHITE);
-    printNum((u32)stokBarang, CLR_WHITE);
-    console.print("\n=== SIMULASI SELESAI ===\n", CLR_RED);
-}
     else if (strEqual(cmd, "demo"))
     {
         runDemo();
@@ -582,6 +671,7 @@ static void runCommand(const char *cmd)
 static char getMenuChoice()
 {
     char choice = keyboard.getChar();
+
     console.putChar(choice);
     console.putChar('\n');
 
@@ -599,6 +689,7 @@ static void mainMenu()
         if (choice == '1')
         {
             console.clear();
+
             console.print("=== PROCESS & THREAD ===\n", CLR_RED);
             console.print("[1] Demo Thread\n", CLR_WHITE);
             console.print("[2] Daftar Thread\n", CLR_WHITE);
@@ -615,6 +706,7 @@ static void mainMenu()
         else if (choice == '2')
         {
             console.clear();
+
             console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
             console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
             console.print("[0] Kembali\n", CLR_WHITE);
@@ -628,6 +720,7 @@ static void mainMenu()
         else if (choice == '3')
         {
             console.clear();
+
             console.print("=== SYSTEM & TESTING ===\n", CLR_RED);
             console.print("[1] Informasi Sistem\n", CLR_WHITE);
             console.print("[2] Memory Management\n", CLR_WHITE);
@@ -643,11 +736,17 @@ static void mainMenu()
                 console.print("Arsitektur: x86 32-bit\n", CLR_WHITE);
             }
             else if (sub == '2')
+            {
                 showMem();
+            }
             else if (sub == '3')
+            {
                 runMemTest();
+            }
             else if (sub == '4')
+            {
                 ioDemo();
+            }
         }
         else if (choice == '4')
         {
@@ -680,4 +779,3 @@ extern "C" void kmain(void)
 
     mainMenu();
 }
-
