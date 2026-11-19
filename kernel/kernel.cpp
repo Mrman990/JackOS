@@ -594,6 +594,162 @@ static void taskRestock()
     mutex_unlock(&stockMutex);
 }
 
+// ================= SYNCHRONIZATION TEST =================
+
+static int syncStok = 0;
+static int syncPenjualan = 0;
+static int syncRestock = 0;
+static bool syncGunakanMutex = false;
+static mutex_t syncMutex;
+
+// Membaca input angka dari pengguna
+static int inputAngka(const char *pesan)
+{
+    console.print(pesan, CLR_WHITE);
+
+    int angka = 0;
+    int jumlahDigit = 0;
+
+    while (true)
+    {
+        char ch = keyboard.getChar();
+
+        if (ch == '\n')
+            break;
+
+        if (ch >= '0' && ch <= '9' && jumlahDigit < 5)
+        {
+            angka = angka * 10 + (ch - '0');
+            jumlahDigit++;
+
+            console.putChar(ch);
+        }
+    }
+
+    console.print("\n", CLR_WHITE);
+    return angka;
+}
+
+// Proses perubahan stok oleh thread
+static void prosesSync(bool penjualan)
+{
+    if (syncGunakanMutex)
+        mutex_lock(&syncMutex);
+
+    if (penjualan)
+        console.print("[Thread Penjualan] Mengakses stok...\n", CLR_WHITE);
+    else
+        console.print("[Thread Restock] Mengakses stok...\n", CLR_WHITE);
+
+    int stokSementara = syncStok;
+
+    // Memberi kesempatan thread lain berjalan
+    yield();
+
+    if (penjualan)
+        syncStok = stokSementara - syncPenjualan;
+    else
+        syncStok = stokSementara + syncRestock;
+
+    if (penjualan)
+        console.print("[Thread Penjualan] Selesai.\n", CLR_WHITE);
+    else
+        console.print("[Thread Restock] Selesai.\n", CLR_WHITE);
+
+    if (syncGunakanMutex)
+        mutex_unlock(&syncMutex);
+}
+
+static void taskSyncPenjualan()
+{
+    prosesSync(true);
+}
+
+static void taskSyncRestock()
+{
+    prosesSync(false);
+}
+
+// Menjalankan satu skenario pengujian
+static int jalankanSyncTest(int stokAwal, int penjualan,
+                            int restock, bool gunakanMutex)
+{
+    syncStok = stokAwal;
+    syncPenjualan = penjualan;
+    syncRestock = restock;
+    syncGunakanMutex = gunakanMutex;
+
+    if (gunakanMutex)
+        mutex_init(&syncMutex);
+
+    if (gunakanMutex)
+        console.print("\n=== PENGUJIAN DENGAN MUTEX ===\n", CLR_RED);
+    else
+        console.print("\n=== PENGUJIAN TANPA MUTEX ===\n", CLR_RED);
+
+    if (!create_thread("Sync-Penjualan", taskSyncPenjualan))
+    {
+        console.print("Gagal membuat thread Penjualan.\n", CLR_RED);
+        return -1;
+    }
+
+    if (!create_thread("Sync-Restock", taskSyncRestock))
+    {
+        console.print("Gagal membuat thread Restock.\n", CLR_RED);
+        scheduler_run();
+        return -1;
+    }
+
+    scheduler_run();
+
+    console.print("Stok akhir: ", CLR_WHITE);
+    printNum((u32)syncStok, CLR_WHITE);
+    console.print("\n", CLR_WHITE);
+
+    return syncStok;
+}
+
+// Menu utama Synchronization Test
+static void runSynchronizationTest()
+{
+    console.print("========== SYNCHRONIZATION TEST ==========\n", CLR_RED);
+
+    int stokAwal = inputAngka("Masukkan stok awal        : ");
+    int penjualan = inputAngka("Masukkan jumlah penjualan : ");
+    int restock = inputAngka("Masukkan jumlah restock   : ");
+
+    if (penjualan > stokAwal)
+    {
+        console.print("\nJumlah penjualan melebihi stok awal!\n", CLR_RED);
+        return;
+    }
+
+    int hasilTanpaMutex =
+        jalankanSyncTest(stokAwal, penjualan, restock, false);
+
+    int hasilDenganMutex =
+        jalankanSyncTest(stokAwal, penjualan, restock, true);
+
+    if (hasilTanpaMutex < 0 || hasilDenganMutex < 0)
+    {
+        console.print("\nPengujian tidak selesai.\n", CLR_RED);
+        return;
+    }
+
+    console.print("\n========== PERBANDINGAN HASIL ==========\n", CLR_RED);
+
+    console.print("Stok awal       : ", CLR_WHITE);
+    printNum((u32)stokAwal, CLR_WHITE);
+
+    console.print("\nTanpa Mutex     : ", CLR_WHITE);
+    printNum((u32)hasilTanpaMutex, CLR_WHITE);
+
+    console.print("\nDengan Mutex    : ", CLR_WHITE);
+    printNum((u32)hasilDenganMutex, CLR_WHITE);
+
+    console.print("\n========================================\n", CLR_RED);
+}
+
 static void runCommand(const char *cmd)
 {
     if (cmd[0] == '\0')
@@ -705,17 +861,29 @@ static void mainMenu()
         }
         else if (choice == '2')
         {
-            console.clear();
+else if (choice == '2')
+{
+    console.clear();
 
-            console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
-            console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
-            console.print("[0] Kembali\n", CLR_WHITE);
-            console.print("Pilih menu: ", CLR_WHITE);
+    console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
+    console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
+    console.print("[2] Synchronization Test\n", CLR_WHITE);
+    console.print("[0] Kembali\n", CLR_WHITE);
+    console.print("Pilih menu: ", CLR_WHITE);
 
+    char sub = getMenuChoice();
+
+    if (sub == '1')
+        runStokApp();
+    else if (sub == '2')
+        runSynchronizationTest();
+}
             char sub = getMenuChoice();
 
             if (sub == '1')
                 runStokApp();
+            else if (sub == '2')
+                runSynchronizationTest();
         }
         else if (choice == '3')
         {
