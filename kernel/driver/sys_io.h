@@ -16,6 +16,32 @@ static bool sys_print(const char *str, u8 clr)
     return ok;
 }
 
+// System call untuk mengatur posisi kursor.
+static bool sys_set_cursor(int row, int col)
+{
+    CpuMode prev = kernel_enter();
+    bool ok = drv_screen_set_cursor(row, col);
+    kernel_leave(prev);
+
+    return ok;
+}
+
+// Menampilkan teks pada posisi tertentu melalui system call.
+static bool sys_write_at(
+    int row, int col,
+    const char *str,
+    u8 clr)
+{
+    if (str == nullptr)
+        return false;
+
+    CpuMode prev = kernel_enter();
+    bool ok = drv_screen_write_at(row, col, str, clr);
+    kernel_leave(prev);
+
+    return ok;
+}
+
 static bool sys_print_num(u32 v, u8 clr)
 {
     CpuMode prev = kernel_enter();
@@ -32,6 +58,22 @@ static inline char sys_getchar()
     kernel_leave(prev);
     return ch;
 }
+
+
+static bool sys_try_getchar(char *out)
+{
+    if (out == nullptr)
+        return false;
+
+    CpuMode prev = kernel_enter();
+
+    bool available = drv_keyboard_try_getchar(out);
+
+    kernel_leave(prev);
+
+    return available;
+}
+
 
 // Baca satu baris ke buf (maksimal maxLen termasuk '\0'). Return panjang, atau -1 jika argumen tidak sah.
 static int sys_read_line(char *buf, int maxLen)

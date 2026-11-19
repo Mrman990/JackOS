@@ -226,65 +226,81 @@ private:
 public:
     Keyboard() : shift(false), caps(false), extended(false) {}
 
-    char getChar()
+bool tryGetChar(char *out)
+{
+    if (out == nullptr)
+        return false;
+
+    while (inb(0x64) & 1)
     {
-        while (true)
+        u8 sc = inb(0x60);
+
+        if (sc == 0xE0)
         {
-            if (!(inb(0x64) & 1))
-                continue;
+            extended = true;
+            continue;
+        }
 
-            u8 sc = inb(0x60);
+        if (extended)
+        {
+            extended = false;
+            continue;
+        }
 
-            if (sc == 0xE0)
-            {
-                extended = true;
-                continue;
-            }
+        if (sc == 0x2A || sc == 0x36)
+        {
+            shift = true;
+            continue;
+        }
 
-            if (extended)
-            {
-                extended = false;
-                continue;
-            }
+        if (sc == 0xAA || sc == 0xB6)
+        {
+            shift = false;
+            continue;
+        }
 
-            if (sc == 0x2A || sc == 0x36)
-            {
-                shift = true;
-                continue;
-            }
+        if (sc == 0x3A)
+        {
+            caps = !caps;
+            continue;
+        }
 
-            if (sc == 0xAA || sc == 0xB6)
-            {
-                shift = false;
-                continue;
-            }
+        if (sc & 0x80)
+            continue;
 
-            if (sc == 0x3A)
-            {
-                caps = !caps;
-                continue;
-            }
+        if (sc >= 58)
+            continue;
 
-            if (sc & 0x80)
-                continue;
+        char ch = shift ? scanShift[sc] : scanNormal[sc];
 
-            if (sc >= 58)
-                continue;
+        if (caps)
+        {
+            if (ch >= 'a' && ch <= 'z')
+                ch = ch - 'a' + 'A';
+            else if (ch >= 'A' && ch <= 'Z')
+                ch = ch - 'A' + 'a';
+        }
 
-            char ch = shift ? scanShift[sc] : scanNormal[sc];
-
-            if (caps)
-            {
-                if (ch >= 'a' && ch <= 'z')
-                    ch = ch - 'a' + 'A';
-                else if (ch >= 'A' && ch <= 'Z')
-                    ch = ch - 'A' + 'a';
-            }
-
-            if (ch != 0)
-                return ch;
+        if (ch != 0)
+        {
+            *out = ch;
+            return true;
         }
     }
+
+    return false;
+}
+
+char getChar()
+{
+    char ch;
+
+    while (!tryGetChar(&ch))
+    {
+    }
+
+    return ch;
+}
 };
 
 static VGAConsole console;
@@ -333,31 +349,144 @@ static void printResult(const char *message, bool success)
         success ? CLR_WHITE : CLR_RED);
 }
 
+
+static bool syncMonitorAktif = false;
+static int syncLogRow = 15;
+static int threadLogRow = 3;
+static void writeNumberAt(int row, int col, int number, u8 clr);
+
 // Dipanggil scheduler setiap status thread berubah.
+
 static void logThreadState(
     const thread_t *t,
     thread_state_t from,
     thread_state_t to)
 {
-    console.print("[T", CLR_RED);
-    printNum(t->tid, CLR_RED);
-    console.print(" ", CLR_RED);
-    console.print(t->name, CLR_RED);
-    console.print("] ", CLR_RED);
+    if (t == nullptr)
+        return;
+
+    // Batasi monitor pada area kanan atas.
+    if (threadLogRow >= 12)
+        threadLogRow = 3;
+
+    // Bersihkan baris sebelumnya.
+    for (int c = 42; c < 80; c++)
+        console.putCell(threadLogRow, c, ' ', CLR_WHITE);
+
+    console.writeAt(threadLogRow, 42, "T", CLR_WHITE);
+    writeNumberAt(threadLogRow, 43, t->tid, CLR_WHITE);
+    console.writeAt(threadLogRow, 47, t->name, CLR_WHITE);
 
     if (from == to)
     {
-        console.print(thread_state_name(to), CLR_WHITE);
+        console.writeAt(
+            threadLogRow, 68,
+            thread_state_name(to), CLR_WHITE);
     }
     else
     {
-        console.print(thread_state_name(from), CLR_WHITE);
-        console.print(" -> ", CLR_WHITE);
-        console.print(thread_state_name(to), CLR_WHITE);
+        console.writeAt(
+            threadLogRow, 60,
+            thread_state_name(from), CLR_WHITE);
+
+        console.writeAt(threadLogRow, 68, ">", CLR_WHITE);
+
+        console.writeAt(
+            threadLogRow, 70,
+            thread_state_name(to), CLR_WHITE);
     }
 
-    console.print("\n", CLR_WHITE);
+    threadLogRow++;
 }
+
+
+static void writeNumberAt(int row, int col, int number, u8 clr)
+{
+    char digits[10];
+    int count = 0;
+
+    if (number == 0)
+    {
+        console.putCell(row, col, '0', clr);
+        return;
+    }
+
+    while (number > 0 && count < 10)
+    {
+        digits[count++] = '0' + (number % 10);
+        number /= 10;
+    }
+
+    for (int i = 0; i < count; i++)
+        console.putCell(row, col + i, digits[count - 1 - i], clr);
+}
+
+
+
+static void logSyncThreadState(
+    const thread_t *t,
+    thread_state_t from,
+    thread_state_t to)
+{
+    if (!syncMonitorAktif || syncLogRow >= 24)
+        return;
+
+    // Bersihkan baris sebelum menulis log baru.
+    for (int c = 42; c < 80; c++)
+        console.putCell(syncLogRow, c, ' ', CLR_WHITE);
+
+    // ID dan nama thread.
+    console.writeAt(syncLogRow, 42, "T", CLR_WHITE);
+    writeNumberAt(syncLogRow, 43, t->tid, CLR_WHITE);
+    console.writeAt(syncLogRow, 47, t->name, CLR_WHITE);
+
+    // Status thread.
+    if (from == to)
+    {
+        console.writeAt(
+            syncLogRow, 70,
+            thread_state_name(to), CLR_WHITE
+        );
+    }
+    else
+    {
+        console.writeAt(
+            syncLogRow, 60,
+            thread_state_name(from), CLR_WHITE
+        );
+
+        console.putCell(syncLogRow, 68, '>', CLR_WHITE);
+
+        console.writeAt(
+            syncLogRow, 70,
+            thread_state_name(to), CLR_WHITE
+        );
+    }
+
+    syncLogRow++;
+}
+
+
+static void logMutexEvent(mutex_event_t event)
+{
+    if (!syncMonitorAktif || syncLogRow >= 24)
+        return;
+
+    for (int c = 42; c < 80; c++)
+        console.putCell(syncLogRow, c, ' ', CLR_WHITE);
+
+    console.writeAt(syncLogRow, 42, "[MUTEX]", CLR_RED);
+
+    if (event == MUTEX_EVENT_WAIT)
+        console.writeAt(syncLogRow, 51, "WAIT", CLR_WHITE);
+    else if (event == MUTEX_EVENT_LOCK)
+        console.writeAt(syncLogRow, 51, "LOCK", CLR_WHITE);
+    else if (event == MUTEX_EVENT_UNLOCK)
+        console.writeAt(syncLogRow, 51, "UNLOCK", CLR_WHITE);
+
+    syncLogRow++;
+}
+
 
 static void showMem()
 {
@@ -710,25 +839,53 @@ static int jalankanSyncTest(int stokAwal, int penjualan,
 }
 
 // Menu utama Synchronization Test
+
 static void runSynchronizationTest()
 {
-    console.print("========== SYNCHRONIZATION TEST ==========\n", CLR_RED);
+    console.clear();
 
-    int stokAwal = inputAngka("Masukkan stok awal        : ");
-    int penjualan = inputAngka("Masukkan jumlah penjualan : ");
-    int restock = inputAngka("Masukkan jumlah restock   : ");
+    // Garis pemisah panel.
+    for (int r = 0; r < 25; r++)
+        console.putCell(r, 39, '|', CLR_RED);
+
+    // Judul panel kanan.
+    console.writeAt(0, 42, "THREAD MONITOR", CLR_RED);
+    console.writeAt(1, 42, "ID  NAMA THREAD    STATUS", CLR_WHITE);
+
+    // Judul panel kiri.
+    console.writeAt(0, 0, "SYNCHRONIZATION TEST", CLR_RED);
+
+    // Input pengguna.
+    console.setCursor(3, 0);
+
+    int stokAwal = inputAngka("Stok awal        : ");
+    int penjualan = inputAngka("Jumlah penjualan : ");
+    int restock = inputAngka("Jumlah restock   : ");
 
     if (penjualan > stokAwal)
     {
-        console.print("\nJumlah penjualan melebihi stok awal!\n", CLR_RED);
+        console.print("\nPenjualan melebihi stok awal!\n", CLR_RED);
         return;
     }
+
+    // Aktifkan logger khusus panel kanan.
+    syncLogRow = 15;
+    syncMonitorAktif = true;
+// scheduler_set_logger(logSyncThreadState);
+
+    console.print("\n=== TANPA MUTEX ===\n", CLR_RED);
 
     int hasilTanpaMutex =
         jalankanSyncTest(stokAwal, penjualan, restock, false);
 
+    console.print("\n=== DENGAN MUTEX ===\n", CLR_RED);
+
     int hasilDenganMutex =
         jalankanSyncTest(stokAwal, penjualan, restock, true);
+
+    // Kembalikan logger seperti semula.
+syncMonitorAktif = false;
+scheduler_set_logger(0);
 
     if (hasilTanpaMutex < 0 || hasilDenganMutex < 0)
     {
@@ -736,19 +893,20 @@ static void runSynchronizationTest()
         return;
     }
 
-    console.print("\n========== PERBANDINGAN HASIL ==========\n", CLR_RED);
+    console.print("\n=== PERBANDINGAN ===\n", CLR_RED);
 
-    console.print("Stok awal       : ", CLR_WHITE);
+    console.print("Stok awal    : ", CLR_WHITE);
     printNum((u32)stokAwal, CLR_WHITE);
 
-    console.print("\nTanpa Mutex     : ", CLR_WHITE);
+    console.print("\nTanpa Mutex  : ", CLR_WHITE);
     printNum((u32)hasilTanpaMutex, CLR_WHITE);
 
-    console.print("\nDengan Mutex    : ", CLR_WHITE);
+    console.print("\nDengan Mutex : ", CLR_WHITE);
     printNum((u32)hasilDenganMutex, CLR_WHITE);
 
-    console.print("\n========================================\n", CLR_RED);
+    console.print("\n========================\n", CLR_RED);
 }
+
 
 static void runCommand(const char *cmd)
 {
@@ -834,6 +992,33 @@ static char getMenuChoice()
     return choice;
 }
 
+static void showStokDashboard()
+{
+    console.clear();
+
+    // Garis pemisah dua panel.
+    for (int r = 0; r < 25; r++)
+        console.putCell(r, 39, '|', CLR_RED);
+
+    // Panel kiri: Inventory CRUD.
+    console.writeAt(0, 2, "JACK OS - INVENTORY", CLR_RED);
+    console.writeAt(1, 2, "==================", CLR_WHITE);
+
+    // Panel kanan: Thread Monitor.
+    console.writeAt(0, 42, "THREAD MONITOR", CLR_RED);
+    console.writeAt(1, 42, "ID  NAMA THREAD  STATUS", CLR_WHITE);
+
+    // Panel kanan: Synchronization Monitor.
+    console.writeAt(13, 42, "SYNC MONITOR", CLR_RED);
+    console.writeAt(14, 42, "AKTIVITAS SINKRONISASI", CLR_WHITE);
+
+    threadLogRow = 3;
+    syncLogRow = 15;
+    // Posisi awal kursor aplikasi CRUD.
+    console.setCursor(2, 2);
+}
+
+
 static void mainMenu()
 {
     while (true)
@@ -842,48 +1027,46 @@ static void mainMenu()
 
         char choice = getMenuChoice();
 
-        if (choice == '1')
+if (choice == '1')
+{
+    console.clear();
+    console.print("=== PROCESS & THREAD ===\n", CLR_RED);
+    console.print("Thread Monitor tersedia di Dashboard Inventory.\n", CLR_WHITE);
+}
+        else if (choice == '2')
         {
             console.clear();
 
-            console.print("=== PROCESS & THREAD ===\n", CLR_RED);
-            console.print("[1] Demo Thread\n", CLR_WHITE);
-            console.print("[2] Daftar Thread\n", CLR_WHITE);
+            console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
+            console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
+            console.print("[2] Synchronization Test\n", CLR_WHITE);
             console.print("[0] Kembali\n", CLR_WHITE);
-            console.print("Pilih menu: ", CLR_WHITE);
 
             char sub = getMenuChoice();
 
             if (sub == '1')
-                runDemo();
+            {
+                showStokDashboard();
+
+                thread_t *stokThread =
+                    create_thread("Stok App", taskStokApp);
+
+                if (stokThread != nullptr)
+                {
+                    scheduler_add(stokThread);
+                    scheduler_run();
+                }
+                else
+                {
+                    console.print(
+                        "Gagal membuat thread aplikasi stok.\n",
+                        CLR_RED);
+                }
+            }
             else if (sub == '2')
-                showThreads();
-        }
-        else if (choice == '2')
-        {
-else if (choice == '2')
-{
-    console.clear();
-
-    console.print("=== INVENTORY MANAGEMENT ===\n", CLR_RED);
-    console.print("[1] Aplikasi Stok Barang\n", CLR_WHITE);
-    console.print("[2] Synchronization Test\n", CLR_WHITE);
-    console.print("[0] Kembali\n", CLR_WHITE);
-    console.print("Pilih menu: ", CLR_WHITE);
-
-    char sub = getMenuChoice();
-
-    if (sub == '1')
-        runStokApp();
-    else if (sub == '2')
-        runSynchronizationTest();
-}
-            char sub = getMenuChoice();
-
-            if (sub == '1')
-                runStokApp();
-            else if (sub == '2')
+            {
                 runSynchronizationTest();
+            }
         }
         else if (choice == '3')
         {
@@ -904,17 +1087,11 @@ else if (choice == '2')
                 console.print("Arsitektur: x86 32-bit\n", CLR_WHITE);
             }
             else if (sub == '2')
-            {
                 showMem();
-            }
             else if (sub == '3')
-            {
                 runMemTest();
-            }
             else if (sub == '4')
-            {
                 ioDemo();
-            }
         }
         else if (choice == '4')
         {
@@ -941,9 +1118,10 @@ extern "C" void kmain(void)
 
     mem::init();
     ramdisk.init();
+    
+scheduler_init();
+mutex_set_logger(logMutexEvent);
+//scheduler_set_logger(logThreadState);
 
-    scheduler_init();
-    scheduler_set_logger(logThreadState);
-
-    mainMenu();
+mainMenu();
 }

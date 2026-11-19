@@ -49,6 +49,77 @@ static RdResult sys_list_items()
     return RD_OK;
 }
 
+
+// Menampilkan daftar barang khusus pada panel aplikasi.
+// Menampilkan daftar barang khusus pada panel aplikasi.
+static RdResult sys_list_items_panel()
+{
+    if (!sysPermit(PERM_LIST, "barang"))
+        return RD_ACCESS_DENIED;
+
+    CpuMode prev = kernel_enter();
+
+    int row = 3;
+    console.writeAt(row++, 2, "ID   NAMA                 STOK", CLR_RED);
+
+    for (int i = 0; i < RD_MAX_ITEMS; i++)
+    {
+        const RdItem &it = ramdisk.items[i];
+
+        if (!it.used)
+            continue;
+
+        char line[64];
+        int pos = 0;
+
+        // ID
+        char num[12];
+        int n = 0;
+        u32 value = it.id;
+
+        do {
+            num[n++] = '0' + value % 10;
+            value /= 10;
+        } while (value > 0 && n < 11);
+
+        while (n > 0)
+            line[pos++] = num[--n];
+
+        while (pos < 5)
+            line[pos++] = ' ';
+
+        // Nama barang
+        for (int c = 0; it.name[c] && pos < 30; c++)
+            line[pos++] = it.name[c];
+
+        while (pos < 26)
+            line[pos++] = ' ';
+
+        // Stok
+        value = it.stock;
+        n = 0;
+
+        do {
+            num[n++] = '0' + value % 10;
+            value /= 10;
+        } while (value > 0 && n < 11);
+
+        while (n > 0)
+            line[pos++] = num[--n];
+
+        line[pos] = '\0';
+
+        console.writeAt(row++, 2, line, CLR_WHITE);
+
+        if (row >= 13)
+    break;
+    }
+
+    kernel_leave(prev);
+    return RD_OK;
+}
+
+
 static RdResult sys_update_stock(u32 id, long stock)
 {
     if (!sysPermit(PERM_UPDATE, "ubah"))
@@ -65,8 +136,10 @@ static RdResult sys_delete_item(u32 id)
 {
     if (!sysPermit(PERM_DELETE, "hapus"))
         return RD_ACCESS_DENIED;
+
     if (id == 0)
         return RD_BAD_ARG;
+
     CpuMode prev = kernel_enter();
     RdResult r = ramdisk_delete(id);
     kernel_leave(prev);

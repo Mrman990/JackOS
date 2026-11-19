@@ -14,6 +14,42 @@ static bool drv_screen_print(const char *str, u8 clr)
     return true;
 }
 
+
+// Mengatur posisi kursor layar.
+static bool drv_screen_set_cursor(int row, int col)
+{
+    if (!requireKernel("drv_screen_set_cursor"))
+        return false;
+
+    if (row < 0 || row >= 25 || col < 0 || col >= 80)
+        return false;
+
+    console.setCursor(row, col);
+    return true;
+}
+
+// Menampilkan teks pada posisi tertentu di layar.
+static bool drv_screen_write_at(
+    int row, int col,
+    const char *str,
+    u8 clr)
+{
+    if (!requireKernel("drv_screen_write_at"))
+        return false;
+
+    if (str == nullptr || row < 0 || row >= 25 ||
+        col < 0 || col >= 80)
+        return false;
+
+    // Batasi tulisan agar tidak melewati batas layar.
+    int maxLen = 80 - col;
+
+    for (int i = 0; str[i] != '\0' && i < maxLen; i++)
+        console.putCell(row, col + i, str[i], clr);
+
+    return true;
+}
+
 static inline bool drv_screen_putchar(char ch, u8 clr)
 {
     if (!requireKernel("drv_screen_putchar"))
@@ -49,6 +85,15 @@ static char drv_keyboard_getchar()
         return 0;
     return keyboard.getChar();
 }
+
+static bool drv_keyboard_try_getchar(char *out)
+{
+    if (!requireKernel("drv_keyboard_try_getchar"))
+        return false;
+
+    return keyboard.tryGetChar(out);
+}
+
 
 // Baca satu baris dengan echo dan backspace. Mengembalikan panjang baris,
 // atau -1 jika ditolak.
