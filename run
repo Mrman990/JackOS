@@ -27,7 +27,8 @@ if [ "$1" = "JACK_OS" ]; then
     if [ $? -ne 0 ]; then echo "Error: Linking gagal!"; exit 1; fi
 
     echo "[7/7] Menjalankan QEMU..."
-    qemu-system-i386 -kernel kernel.bin
+    qemu-system-i386 -kernel kernel.bin \
+    -drive file=D:/JACK_OS_DATA/disk.img,format=raw,if=ide
 
 else
     echo "Perintah tidak dikenali."

@@ -102,11 +102,22 @@ static void stokMenuHapus()
     sys_print_num((u32)id, CLR_WHITE);
     sys_print(" dihapus.\n", CLR_WHITE);
 }
+static void stokMenuSimpan()
+{
+    if (sys_save_storage())
+    {
+        sys_print("[DISK] Data barang dan LogBook berhasil disimpan.\n", CLR_WHITE);
+    }
+    else
+    {
+        sys_print("[DISK] Gagal menyimpan data.\n", CLR_RED);
+    }
+}
 
 static void runStokApp()
 {
     sys_session_open();
-    sys_print("=== MANAJEMEN INVENTORY (mode ", CLR_RED);
+    sys_print("=== MENEJEMAN INVENTORY (mode ", CLR_RED);
     sys_print(modeName(g_mode), CLR_RED);
     sys_print(") ===\n", CLR_RED);
 
@@ -117,6 +128,7 @@ static void runStokApp()
         sys_print("  2. Tambah barang\n", CLR_WHITE);
         sys_print("  3. Ubah jumlah stok\n", CLR_WHITE);
         sys_print("  4. Hapus barang\n", CLR_WHITE);
+        sys_print("  5. Simpan data\n", CLR_WHITE);
         sys_print("  0. Keluar\n", CLR_WHITE);
         stokAsk("Pilih> ", pilih, sizeof(pilih));
 
@@ -136,12 +148,15 @@ static void runStokApp()
         case '4':
             stokMenuHapus();
             break;
+        case '5':
+            stokMenuSimpan();
+            break;
         case '0':
             sys_session_close();
             sys_print("Keluar dari aplikasi stok.\n", CLR_RED);
             return;
         default:
-            sys_print("Pilihan tidak dikenal. Ketik 0-4.\n", CLR_RED);
+            sys_print("Pilihan tidak dikenal. Ketik 0-5.\n", CLR_RED);
             break;
         }
     }

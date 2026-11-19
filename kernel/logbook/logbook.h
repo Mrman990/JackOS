@@ -31,6 +31,7 @@ static int logPendCount;
 static u32 logSeq;
 static thread_t *logThread;
 static bool logClosing;
+static bool logDirty = false;
 
 // ---------- jam CMOS (RTC) ----------
 static u8 logCmos(u8 reg)
