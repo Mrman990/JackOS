@@ -9,7 +9,7 @@ extern "C"
 #endif
 
 #ifndef STACK_SIZE
-#define STACK_SIZE 2048 // stack per thread (byte)
+#define STACK_SIZE 8192 // stack per thread (byte)
 #endif
 #define MAX_THREADS 10
 
