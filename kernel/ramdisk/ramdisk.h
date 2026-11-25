@@ -7,7 +7,7 @@
 // Aplikasi/shell harus memakai sys_* (syscall.h).
 
 #define RD_MAX_ITEMS 64
-#define RD_NAME_LEN 20       // 19 huruf + penutup '\0'
+#define RD_NAME_LEN 20 // 19 huruf + penutup '\0'
 #define RD_MAX_STOCK 1000000
 
 // Satu catatan barang: tepat 32 byte, jadi 16 catatan muat dalam 1 sektor disk (512 byte).

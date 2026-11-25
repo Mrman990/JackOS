@@ -61,6 +61,17 @@ static void stokPrintNumber(u32 number, u8 clr)
         stokPrint(temp, clr);
     }
 }
+static void stokPrintId(u32 id)
+{
+    if (id < 10)
+        stokPrint("000", CLR_WHITE);
+    else if (id < 100)
+        stokPrint("00", CLR_WHITE);
+    else if (id < 1000)
+        stokPrint("0", CLR_WHITE);
+
+    stokPrintNumber(id, CLR_WHITE);
+}
 
 // ================= INPUT KEYBOARD =================
 
@@ -165,7 +176,7 @@ static void stokMenuTambah()
     }
 
     stokPrint("Barang ditambahkan: ID ", CLR_WHITE);
-    stokPrintNumber(id, CLR_WHITE);
+    stokPrintId(id);
     stokPrint(".\n", CLR_WHITE);
 }
 
@@ -175,7 +186,7 @@ static void stokMenuUbah()
 
     sys_list_items_panel();
 
-    stokAsk("ID barang        : ", idTxt, sizeof(idTxt));
+    stokAsk("ID barang (0001) : ", idTxt, sizeof(idTxt));
     stokAsk("Jumlah stok baru : ", stokTxt, sizeof(stokTxt));
 
     long id, stok;
@@ -196,7 +207,7 @@ static void stokMenuUbah()
     }
 
     stokPrint("Stok barang ID ", CLR_WHITE);
-    stokPrintNumber((u32)id, CLR_WHITE);
+    stokPrintId((u32)id);
     stokPrint(" diubah menjadi ", CLR_WHITE);
     stokPrintNumber((u32)stok, CLR_WHITE);
     stokPrint(".\n", CLR_WHITE);
@@ -208,7 +219,7 @@ static void stokMenuHapus()
 
     sys_list_items_panel();
 
-    stokAsk("ID barang yang dihapus : ", idTxt, sizeof(idTxt));
+    stokAsk("ID barang (0001) : ", idTxt, sizeof(idTxt));
 
     long id;
 
@@ -235,7 +246,7 @@ static void stokMenuHapus()
     }
 
     stokPrint("Barang ID ", CLR_WHITE);
-    stokPrintNumber((u32)id, CLR_WHITE);
+    stokPrintId((u32)id);
     stokPrint(" dihapus.\n", CLR_WHITE);
 }
 
@@ -269,6 +280,7 @@ static void runStokApp()
         stokPrint("2. Tambah barang\n", CLR_WHITE);
         stokPrint("3. Ubah jumlah stok\n", CLR_WHITE);
         stokPrint("4. Hapus barang\n", CLR_WHITE);
+        stokPrint("5. Simpan data\n", CLR_WHITE);
         stokPrint("0. Keluar\n", CLR_WHITE);
 
         stokPrint("Pilih> ", CLR_WHITE);
@@ -294,13 +306,23 @@ static void runStokApp()
         case '0':
             stokPrint("Keluar dari aplikasi stok.\n", CLR_RED);
             return;
+        case '5':
+        {
+            RdResult result = sys_save_storage();
+            if (result == RD_OK)
+                console.print("Data berhasil disimpan!\n", CLR_WHITE);
+            else
+                console.print("Gagal menyimpan data!\n", CLR_RED);
+
+            break;
+        }
+        break;
         default:
             stokPrint("Pilihan tidak dikenal.\n", CLR_RED);
             break;
         }
     }
 }
-
 
 // ================= THREAD APLIKASI =================
 
