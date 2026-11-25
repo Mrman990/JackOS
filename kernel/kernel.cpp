@@ -526,18 +526,38 @@ static void logMutexEvent(mutex_event_t event)
 
 static void showMem()
 {
-    console.print("=== MEMORY MANAGEMENT ===\n", CLR_RED);
+    u32 total = (u32)mem::total();
+    u32 used  = (u32)mem::used();
+    u32 avail = (total >= used) ? (total - used) : 0;
+    u32 pct   = (total > 0) ? (used * 100) / total : 0;
 
-    console.print("Total Heap : ", CLR_WHITE);
-    printNum((u32)mem::total(), CLR_WHITE);
+    console.print("\n=== JACKOS RAM MONITOR ===\n", CLR_RED);
 
-    console.print("\nMemori Terpakai : ", CLR_WHITE);
-    printNum((u32)mem::used(), CLR_WHITE);
+    int filled = (int)((pct * 20) / 100);
+    if (used > 0 && filled == 0) filled = 1;
+    console.print("Penggunaan: [", CLR_WHITE);
+    for (int i = 0; i < 20; i++)
+        console.print(i < filled ? "#" : "-", i < filled ? CLR_RED : CLR_WHITE);
+    console.print("] ", CLR_WHITE);
+    printNum(pct, CLR_WHITE);
+    console.print("%\n", CLR_WHITE);
 
-    console.print("\nMemori Tersedia : ", CLR_WHITE);
-    printNum((u32)(mem::total() - mem::used()), CLR_WHITE);
+    console.print("Total Heap      : ", CLR_WHITE);
+    printNum(total, CLR_WHITE);
+    console.print(" bytes\n", CLR_WHITE);
 
-    console.print("\n");
+    console.print("Memori Terpakai : ", CLR_WHITE);
+    printNum(used, CLR_WHITE);
+    console.print(" bytes\n", CLR_WHITE);
+
+    console.print("Memori Tersedia : ", CLR_WHITE);
+    printNum(avail, CLR_WHITE);
+    console.print(" bytes\n", CLR_WHITE);
+
+    console.print("Objek Barang    : ", CLR_WHITE);
+    printNum(ramdisk.count(), CLR_WHITE);
+    console.print(" item aktif\n", CLR_WHITE);
+    console.print("==========================\n\n", CLR_RED);
 }
 
 static void runMemTest()
