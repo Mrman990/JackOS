@@ -64,7 +64,7 @@ static const char *rdMessage(RdResult r)
 
 struct RamDisk
 {
-    RdItem items[RD_MAX_ITEMS];
+    RdItem *items[RD_MAX_ITEMS]; // <--- GANTI: jadi array of pointer
     u32 nextId;
     bool dirty; // true = ada perubahan yang belum disimpan ke flashdisk
 
@@ -72,18 +72,21 @@ struct RamDisk
     // global belum tentu dijalankan oleh loader.)
     void init()
     {
-        reset();
+        for (int i = 0; i < RD_MAX_ITEMS; i++)
+            items[i] = nullptr;
+        nextId = 1;
+        dirty = false;
     }
 
     void reset()
     {
         for (int i = 0; i < RD_MAX_ITEMS; i++)
         {
-            items[i].id = 0;
-            for (int c = 0; c < RD_NAME_LEN; c++)
-                items[i].name[c] = '\0';
-            items[i].stock = 0;
-            items[i].used = 0;
+           if (items[i] != nullptr)
+            {
+                mem::free(items[i]); // <--- BARU: bebaskan memori di heap
+                items[i] = nullptr;
+            }
         }
         nextId = 1;
         dirty = false;
@@ -93,7 +96,7 @@ struct RamDisk
     {
         u32 n = 0;
         for (int i = 0; i < RD_MAX_ITEMS; i++)
-            if (items[i].used)
+           if (items[i] != nullptr && items[i]->used) // <--- GANTI: cek nullptr & pakai ->
                 n++;
         return n;
     }
@@ -103,8 +106,8 @@ struct RamDisk
         if (id == 0)
             return nullptr;
         for (int i = 0; i < RD_MAX_ITEMS; i++)
-            if (items[i].used && items[i].id == id)
-                return &items[i];
+            if (items[i] != nullptr && items[i]->used && items[i]->id == id) // <--- GANTI
+                return items[i];                                             // <--- GANTI
         return nullptr;
     }
 
@@ -130,33 +133,40 @@ struct RamDisk
 
         for (int i = 0; i < RD_MAX_ITEMS; i++)
         {
-            if (!items[i].used)
+            if (items[i] == nullptr || !items[i]->used) // <--- GANTI
                 continue;
             bool same = true;
             for (int c = 0; c < len; c++)
-                if (items[i].name[c] != rawName[c])
+               if (items[i]->name[c] != rawName[c]) // <--- GANTI
                 {
                     same = false;
                     break;
                 }
-            if (same && items[i].name[len] == '\0')
+            if (same && items[i]->name[len] == '\0') // <--- GANTI
                 return RD_NAME_DUPLICATE;
         }
 
         for (int i = 0; i < RD_MAX_ITEMS; i++)
         {
-            if (items[i].used)
+            if (items[i] != nullptr) // <--- GANTI
                 continue;
-            items[i].id = nextId++;
+            // <--- BARU: Alokasi 32 byte dari Heap
+            RdItem *slot = (RdItem *)mem::alloc(sizeof(RdItem));
+            if (slot == nullptr)
+                return RD_FULL;
+
+            slot->id = nextId++;
             for (int c = 0; c < RD_NAME_LEN; c++)
-                items[i].name[c] = '\0';
+                slot->name[c] = '\0';
             for (int c = 0; c < len; c++)
-                items[i].name[c] = rawName[c];
-            items[i].stock = (u32)stock;
-            items[i].used = 1;
+                slot->name[c] = rawName[c];
+            slot->stock = (u32)stock;
+            slot->used = 1;
+
+            items[i] = slot;
             dirty = true;
             if (newId)
-                *newId = items[i].id;
+                *newId = slot->id;
             return RD_OK;
         }
         return RD_FULL;
@@ -179,16 +189,19 @@ struct RamDisk
     // ID yang sudah dihapus tidak dipakai ulang (nextId hanya naik).
     RdResult remove(u32 id)
     {
-        RdItem *it = find(id);
-        if (!it)
+        if (id == 0)
             return RD_NOT_FOUND;
-        it->used = 0;
-        it->id = 0;
-        it->stock = 0;
-        for (int c = 0; c < RD_NAME_LEN; c++)
-            it->name[c] = '\0';
-        dirty = true;
-        return RD_OK;
+        for (int i = 0; i < RD_MAX_ITEMS; i++)
+        {
+            if (items[i] != nullptr && items[i]->used && items[i]->id == id)
+            {
+                mem::free(items[i]); // <--- BARU: Kembalikan memori ke Heap
+                items[i] = nullptr;
+                dirty = true;
+                return RD_OK;
+            }
+        }
+        return RD_NOT_FOUND;
     }
 };
 
@@ -246,9 +259,9 @@ static void ramdisk_list()
     console.print("ID   NAMA                 STOK\n", CLR_RED);
     for (int i = 0; i < RD_MAX_ITEMS; i++)
     {
-        const RdItem &it = ramdisk.items[i];
-        if (!it.used)
+        if (ramdisk.items[i] == nullptr || !ramdisk.items[i]->used) // <--- GANTI
             continue;
+        const RdItem &it = *(ramdisk.items[i]); // <--- GANTI: dereference pointer
         ramdiskPrintNum(it.id, 5);
         console.print(it.name, CLR_WHITE);
         int len = 0;

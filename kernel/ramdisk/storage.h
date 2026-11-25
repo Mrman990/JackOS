@@ -245,7 +245,18 @@ static void storageCreateSnapshot(StorageSnapshot *snapshot)
 {
     for (u32 i = 0; i < RD_MAX_ITEMS; i++)
     {
-        snapshot->items[i] = ramdisk.items[i];
+       if (ramdisk.items[i] != nullptr) // <--- GANTI
+        {
+            snapshot->items[i] = *(ramdisk.items[i]);
+        }
+        else
+        {
+            snapshot->items[i].id = 0;
+            snapshot->items[i].stock = 0;
+            snapshot->items[i].used = 0;
+            for (int c = 0; c < RD_NAME_LEN; c++)
+                snapshot->items[i].name[c] = '\0';
+        }
     }
 
     snapshot->nextId = ramdisk.nextId;
@@ -258,9 +269,19 @@ static void storageCreateSnapshot(StorageSnapshot *snapshot)
 static void storageRestoreSnapshot(
     const StorageSnapshot *snapshot)
 {
+    ramdisk.reset(); // <--- BARU: kosongkan memori lama sebelum restore
+
     for (u32 i = 0; i < RD_MAX_ITEMS; i++)
     {
-        ramdisk.items[i] = snapshot->items[i];
+        if (snapshot->items[i].used) // <--- GANTI: alokasi ulang dari heap
+        {
+            RdItem *slot = (RdItem *)mem::alloc(sizeof(RdItem));
+            if (slot != nullptr)
+            {
+                *slot = snapshot->items[i];
+                ramdisk.items[i] = slot;
+            }
+        }
     }
 
     ramdisk.nextId = snapshot->nextId;
@@ -375,7 +396,7 @@ static StorageResult storage_save()
         return STORAGE_ERR_NO_DISK;
 
     // Membuat salinan data RAMDisk.
-    StorageSnapshot currentSnapshot;
+    static StorageSnapshot currentSnapshot;
 
     storageCreateSnapshot(&currentSnapshot);
 
