@@ -1,4 +1,3 @@
-
 #include <stdint.h>
 #include "memori_menejeman/kmalloc.hpp"
 
@@ -334,6 +333,18 @@ public:
 static VGAConsole console;
 static Keyboard keyboard;
 
+enum StorageMonitorState
+{
+    STORAGE_MONITOR_TERMINATED,
+    STORAGE_MONITOR_READY,
+    STORAGE_MONITOR_RUNNING
+};
+
+static StorageMonitorState storageMonitorState =
+    STORAGE_MONITOR_TERMINATED;
+
+static void componentMonitorRefresh();
+static void componentMonitorVisualDelay();
 // ============================================================
 // KERNEL MODULES
 // ============================================================
@@ -354,6 +365,59 @@ static void printResult(const char *message, bool success);
 #include "driver/driver.h"
 #include "driver/sys_io.h"
 #include "aplikasi/stok_app.h"
+
+static void componentMonitorWriteStatus(int row, const char *status)
+{
+    // Bersihkan area status terlebih dahulu.
+    for (int col = 62; col < 79; col++)
+    {
+        console.putCell(row, col, ' ', CLR_WHITE);
+    }
+
+    console.writeAt(row, 62, status, CLR_WHITE);
+}
+
+static void componentMonitorRefresh()
+{
+    // Status Kernel
+    console.writeAt(3, 42, "KERNEL", CLR_WHITE);
+    componentMonitorWriteStatus(3, "RUNNING");
+
+    // Status Inventory
+    console.writeAt(4, 42, "INVENTORY", CLR_WHITE);
+
+    if (stokAppAktif)
+        componentMonitorWriteStatus(4, "RUNNING");
+    else
+        componentMonitorWriteStatus(4, "TERMINATED");
+
+    // Status Storage
+    console.writeAt(5, 42, "STORAGE", CLR_WHITE);
+
+    switch (storageMonitorState)
+    {
+    case STORAGE_MONITOR_TERMINATED:
+        componentMonitorWriteStatus(5, "TERMINATED");
+        break;
+
+    case STORAGE_MONITOR_READY:
+        componentMonitorWriteStatus(5, "READY");
+        break;
+
+    case STORAGE_MONITOR_RUNNING:
+        componentMonitorWriteStatus(5, "RUNNING");
+        break;
+    }
+}
+static void componentMonitorVisualDelay()
+{
+    volatile unsigned int i;
+
+    for (i = 0; i < 100000000U; i++)
+    {
+        // Visual delay
+    }
+}
 // ============================================================
 // PRINT NUMBER
 // ============================================================
@@ -527,14 +591,15 @@ static void logMutexEvent(mutex_event_t event)
 static void showMem()
 {
     u32 total = (u32)mem::total();
-    u32 used  = (u32)mem::used();
+    u32 used = (u32)mem::used();
     u32 avail = (total >= used) ? (total - used) : 0;
-    u32 pct   = (total > 0) ? (used * 100) / total : 0;
+    u32 pct = (total > 0) ? (used * 100) / total : 0;
 
     console.print("\n=== JACKOS RAM MONITOR ===\n", CLR_RED);
 
     int filled = (int)((pct * 20) / 100);
-    if (used > 0 && filled == 0) filled = 1;
+    if (used > 0 && filled == 0)
+        filled = 1;
     console.print("Penggunaan: [", CLR_WHITE);
     for (int i = 0; i < 20; i++)
         console.print(i < filled ? "#" : "-", i < filled ? CLR_RED : CLR_WHITE);
@@ -1052,7 +1117,6 @@ static bool kernelPassword()
 // ============================================================
 // INVENTORY DASHBOARD
 // ============================================================
-
 static void showStokDashboard()
 {
     console.clear();
@@ -1064,13 +1128,13 @@ static void showStokDashboard()
     console.writeAt(1, 2, "==================", CLR_WHITE);
 
     console.writeAt(0, 42, "THREAD MONITOR", CLR_RED);
-    console.writeAt(1, 42, "ID  NAMA THREAD  STATUS", CLR_WHITE);
-
-    console.writeAt(13, 42, "SYNC MONITOR", CLR_RED);
-    console.writeAt(14, 42, "AKTIVITAS SINKRONISASI", CLR_WHITE);
+    console.writeAt(2, 42, "NAMA THREAD", CLR_WHITE);
+    console.writeAt(2, 62, "STATUS", CLR_WHITE);
 
     threadLogRow = 3;
     syncLogRow = 15;
+
+    componentMonitorRefresh();
 
     console.setCursor(2, 2);
 }
@@ -1538,16 +1602,32 @@ static void testATA()
 extern "C" void kmain(void)
 {
     console.setColor(CLR_WHITE);
-
     mem::init();
     ramdisk.init();
 
     scheduler_init();
-
     mutex_set_logger(logMutexEvent);
     testATA();
+    StorageResult initResult = storage_init();
 
-    console.print("\nTekan tombol apa saja untuk masuk ke Main Menu...", CLR_WHITE);
+    if (initResult == STORAGE_OK)
+    {
+        console.print("\n[STORAGE] Memeriksa data disk...\n", CLR_WHITE);
+        StorageResult loadResult = storage_load();
+
+        if (loadResult == STORAGE_OK)
+        {
+            console.print("Data berhasil dimuat!\n", CLR_WHITE);
+        }
+    }
+    else
+    {
+        console.print("Disk tidak tersedia!\n", CLR_RED);
+    }
+    console.print(
+        "\nTekan tombol apa saja untuk masuk ke Main Menu...",
+        CLR_WHITE);
+
     keyboard.getChar();
 
     mainMenu();

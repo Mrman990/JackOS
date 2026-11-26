@@ -16,7 +16,7 @@
 #define PERM_SAVE 16
 #define PERM_ALL 31
 
-static u32 userPerms = PERM_ALL;    // izin yang dimiliki mode USER
+static u32 userPerms = PERM_ALL; // izin yang dimiliki mode USER
 
 static bool sysPermit(u32 bit, const char *op)
 {
@@ -99,7 +99,11 @@ static RdResult sys_list_items_panel()
 
     for (int i = 0; i < RD_MAX_ITEMS; i++)
     {
-        const RdItem &it = ramdisk.items[i];
+        RdItem *item = ramdisk.items[i];
+
+        if (item == nullptr)
+            continue;
+        const RdItem &it = *item;
 
         if (!it.used)
             continue;
@@ -216,11 +220,17 @@ static RdResult sys_save_storage()
     if (!sysPermit(PERM_SAVE, "simpan"))
         return RD_ACCESS_DENIED;
 
+    storageMonitorState = STORAGE_MONITOR_RUNNING;
+    componentMonitorRefresh();
+
     CpuMode prev = kernel_enter();
 
     StorageResult result = storage_save();
 
     kernel_leave(prev);
+    componentMonitorVisualDelay();
+    storageMonitorState = STORAGE_MONITOR_READY;
+    componentMonitorRefresh();
 
     if (result == STORAGE_OK)
         return RD_OK;

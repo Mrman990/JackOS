@@ -245,7 +245,7 @@ static void storageCreateSnapshot(StorageSnapshot *snapshot)
 {
     for (u32 i = 0; i < RD_MAX_ITEMS; i++)
     {
-       if (ramdisk.items[i] != nullptr) // <--- GANTI
+        if (ramdisk.items[i] != nullptr) // <--- GANTI
         {
             snapshot->items[i] = *(ramdisk.items[i]);
         }
@@ -395,11 +395,12 @@ static StorageResult storage_save()
     if (!ata_is_ready())
         return STORAGE_ERR_NO_DISK;
 
-    // Membuat salinan data RAMDisk.
     static StorageSnapshot currentSnapshot;
 
+    // 1. Ambil data terbaru dari RAMDisk.
     storageCreateSnapshot(&currentSnapshot);
 
+    // 2. Salin snapshot terbaru ke buffer.
     storageClear(
         storageDataBuffer,
         STORAGE_DATA_BUFFER_SIZE);
@@ -409,10 +410,7 @@ static StorageResult storage_save()
         (const u8 *)&currentSnapshot,
         STORAGE_DATA_SIZE);
 
-    // --------------------------------------------------------
-    // MEMERIKSA SLOT A DAN SLOT B
-    // --------------------------------------------------------
-
+    // 3. Periksa kondisi Slot A dan Slot B.
     u32 generationA = 0;
     u32 generationB = 0;
 
@@ -426,12 +424,21 @@ static StorageResult storage_save()
         &storageProbe,
         &generationB);
 
+    // 4. Pulihkan snapshot terbaru ke buffer.
+    // storageReadSlot() menggunakan buffer yang sama,
+    // sehingga data snapshot sebelumnya tertimpa.
+    storageClear(
+        storageDataBuffer,
+        STORAGE_DATA_BUFFER_SIZE);
+
+    storageCopy(
+        storageDataBuffer,
+        (const u8 *)&currentSnapshot,
+        STORAGE_DATA_SIZE);
+
+    // 5. Tentukan slot tujuan penyimpanan.
     u32 targetSlot;
     u32 newestGeneration = 0;
-
-    // --------------------------------------------------------
-    // MENENTUKAN SLOT TUJUAN
-    // --------------------------------------------------------
 
     if (validA && validB)
     {
@@ -461,15 +468,13 @@ static StorageResult storage_save()
         targetSlot = STORAGE_SLOT_A_START;
     }
 
+    // 6. Buat nomor generasi baru.
     u32 newGeneration = newestGeneration + 1;
 
     if (newGeneration == 0)
         newGeneration = 1;
 
-    // --------------------------------------------------------
-    // 1. INVALIDASI HEADER SLOT TUJUAN
-    // --------------------------------------------------------
-
+    // 7. Kosongkan header lama pada slot tujuan.
     storageClear(
         (u8 *)storageSectorBuffer,
         STORAGE_SECTOR_SIZE);
@@ -481,10 +486,7 @@ static StorageResult storage_save()
         return STORAGE_ERR_WRITE;
     }
 
-    // --------------------------------------------------------
-    // 2. MENULIS DATA SNAPSHOT
-    // --------------------------------------------------------
-
+    // 8. Tulis data terbaru ke disk.
     for (u32 i = 0; i < STORAGE_DATA_SECTORS; i++)
     {
         storageCopy(
@@ -500,10 +502,7 @@ static StorageResult storage_save()
         }
     }
 
-    // --------------------------------------------------------
-    // 3. MEMBUAT HEADER BARU
-    // --------------------------------------------------------
-
+    // 9. Buat header penyimpanan.
     StorageHeader header;
 
     header.magic = STORAGE_MAGIC;
@@ -519,10 +518,7 @@ static StorageResult storage_save()
     header.reserved1 = 0;
     header.reserved2 = 0;
 
-    // --------------------------------------------------------
-    // 4. COMMIT HEADER TERAKHIR
-    // --------------------------------------------------------
-
+    // 10. Tulis header ke disk.
     StorageResult result = storageWriteHeader(
         targetSlot,
         &header);
@@ -530,10 +526,7 @@ static StorageResult storage_save()
     if (result != STORAGE_OK)
         return result;
 
-    // --------------------------------------------------------
-    // 5. PENYIMPANAN BERHASIL
-    // --------------------------------------------------------
-
+    // 11. Tandai bahwa data RAMDisk sudah disimpan.
     ramdisk.dirty = false;
 
     return STORAGE_OK;

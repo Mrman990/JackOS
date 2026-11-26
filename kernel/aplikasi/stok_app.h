@@ -325,10 +325,17 @@ static void runStokApp()
 }
 
 // ================= THREAD APLIKASI =================
-
 static void taskStokApp()
 {
     stokAppAktif = true;
+    storageMonitorState = STORAGE_MONITOR_READY;
+
+    componentMonitorRefresh();
+
     runStokApp();
+
+    storageMonitorState = STORAGE_MONITOR_TERMINATED;
     stokAppAktif = false;
+
+    componentMonitorRefresh();
 }
