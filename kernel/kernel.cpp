@@ -687,35 +687,174 @@ static void runDemo()
 
     console.print("=== DEMO SELESAI ===\n", CLR_RED);
 }
+// ============================================================
+// THREAD INFORMATION - FUNGSI PEMBANTU
+// ============================================================
+
+// Membandingkan dua nama thread.
+static bool threadInfoNameEquals(const char *a, const char *b)
+{
+    if (a == nullptr || b == nullptr)
+        return false;
+
+    int i = 0;
+
+    while (a[i] != '\0' && b[i] != '\0')
+    {
+        if (a[i] != b[i])
+            return false;
+
+        i++;
+    }
+
+    return a[i] == '\0' && b[i] == '\0';
+}
+
+// Mengambil status thread berdasarkan namanya.
+static const char *threadInfoStatusOf(const char *name)
+{
+    for (int i = 0; i < thread_count(); i++)
+    {
+        thread_t *t = thread_at(i);
+
+        if (t == nullptr || !t->in_use)
+            continue;
+
+        if (threadInfoNameEquals(t->name, name))
+            return thread_state_name(t->state);
+    }
+
+    return "TERMINATED";
+}
+
+// Menampilkan satu baris informasi thread.
+static void printThreadInfoRow(
+    u32 id,
+    const char *name,
+    const char *status)
+{
+    printNum(id, CLR_WHITE);
+    console.print("    ", CLR_WHITE);
+
+    // Nama thread
+    console.print(name, CLR_WHITE);
+
+    // Menyesuaikan posisi kolom STATUS
+    int nameLength = 0;
+
+    while (name[nameLength] != '\0')
+        nameLength++;
+
+    int spaces = 18 - nameLength;
+
+    if (spaces < 1)
+        spaces = 1;
+
+    for (int i = 0; i < spaces; i++)
+        console.print(" ", CLR_WHITE);
+
+    // Status thread
+    console.print(status, CLR_WHITE);
+    console.print("\n", CLR_WHITE);
+}
+
+// ============================================================
+// SHOW THREADS
+// ============================================================
 
 static void showThreads()
 {
-    console.print("ID   NAMA       STATUS\n", CLR_RED);
+    console.print("ID   NAMA THREAD       STATUS\n", CLR_WHITE);
+    console.print("-----------------------------------------\n", CLR_WHITE);
 
-    int n = 0;
+    u32 id = 1;
+
+    // ========================================================
+    // KERNEL
+    // ========================================================
+
+    printThreadInfoRow(
+        id++,
+        "KERNEL",
+        "RUNNING");
+
+    // ========================================================
+    // INVENTORY
+    // ========================================================
+
+    printThreadInfoRow(
+        id++,
+        "INVENTORY",
+        stokAppAktif ? "RUNNING" : "TERMINATED");
+
+    // ========================================================
+    // STORAGE
+    // ========================================================
+
+    const char *storageStatus = "TERMINATED";
+
+    switch (storageMonitorState)
+    {
+    case STORAGE_MONITOR_TERMINATED:
+        storageStatus = "TERMINATED";
+        break;
+
+    case STORAGE_MONITOR_READY:
+        storageStatus = "READY";
+        break;
+
+    case STORAGE_MONITOR_RUNNING:
+        storageStatus = "RUNNING";
+        break;
+    }
+
+    printThreadInfoRow(
+        id++,
+        "STORAGE",
+        storageStatus);
+
+    // ========================================================
+    // PENJUALAN
+    // ========================================================
+
+    printThreadInfoRow(
+        id++,
+        "Penjualan",
+        threadInfoStatusOf("Penjualan"));
+
+    // ========================================================
+    // RESTOCK
+    // ========================================================
+
+    printThreadInfoRow(
+        id++,
+        "Restock",
+        threadInfoStatusOf("Restock"));
 
     for (int i = 0; i < thread_count(); i++)
     {
         thread_t *t = thread_at(i);
 
-        if (!t->in_use)
+        if (t == nullptr || !t->in_use)
             continue;
 
-        n++;
+        // Thread yang sudah ditampilkan tidak perlu diulang.
+        if (threadInfoNameEquals(t->name, "INVENTORY") ||
+            threadInfoNameEquals(t->name, "Stok App") ||
+            threadInfoNameEquals(t->name, "Penjualan") ||
+            threadInfoNameEquals(t->name, "Restock"))
+        {
+            continue;
+        }
 
-        console.print("T", CLR_WHITE);
-        printNum(t->tid, CLR_WHITE);
-        console.print("   ", CLR_WHITE);
-        console.print(t->name, CLR_WHITE);
-        console.print("   ", CLR_WHITE);
-        console.print(thread_state_name(t->state), CLR_WHITE);
-        console.print("\n", CLR_WHITE);
+        printThreadInfoRow(
+            id++,
+            t->name,
+            thread_state_name(t->state));
     }
 
-    if (n == 0)
-        console.print("(belum ada thread)\n", CLR_WHITE);
+    console.print("-----------------------------------------\n", CLR_WHITE);
 }
-
 // ============================================================
 // MUTEX DEMO
 // ============================================================
@@ -1403,9 +1542,7 @@ static void systemTestingMenu()
         console.print("========== SYSTEM & TESTING ==========\n", CLR_RED);
         console.print("[1] Informasi Sistem\n", CLR_WHITE);
         console.print("[2] Memory Management\n", CLR_WHITE);
-        console.print("[3] Memory Allocation Test\n", CLR_WHITE);
-        console.print("[4] I/O Test\n", CLR_WHITE);
-        console.print("[5] Synchronization Test\n", CLR_WHITE);
+        console.print("[3] Synchronization Test\n", CLR_WHITE);
         console.print("[0] Back to Kernel Mode\n", CLR_WHITE);
 
         console.print("\nPilih menu: ", CLR_WHITE);
@@ -1438,24 +1575,6 @@ static void systemTestingMenu()
             keyboard.getChar();
         }
         else if (choice == '3')
-        {
-            console.clear();
-
-            runMemTest();
-
-            console.print("\nTekan tombol apa saja untuk kembali...");
-            keyboard.getChar();
-        }
-        else if (choice == '4')
-        {
-            console.clear();
-
-            ioDemo();
-
-            console.print("\nTekan tombol apa saja untuk kembali...");
-            keyboard.getChar();
-        }
-        else if (choice == '5')
         {
             runSynchronizationTest();
 
